@@ -45,7 +45,13 @@ window.SETTINGS = {
   notifyLateCheckin: false,
   notifyDailyReport: true,
   // Lists
-  stores: ['Clicks — Gateway','Checkers — La Lucia','Dis-Chem — Pavilion','Pick n Pay — Musgrave','Clicks — Westville'],
+  stores: [
+    { id:'STR-001', name:'Clicks — Gateway Mall',        retailer:'Clicks',     branch:'Gateway Mall',    address:'1 Palm Blvd, Umhlanga',            town:'Umhlanga',   province:'KwaZulu-Natal', email:'gateway@clicks.co.za',    phone:'031 566 0001' },
+    { id:'STR-002', name:'Dis-Chem — Pavilion',          retailer:'Dis-Chem',   branch:'Pavilion',        address:'Pavilion Shopping Centre',          town:'Westville',  province:'KwaZulu-Natal', email:'pavilion@dischem.co.za',  phone:'031 265 0002' },
+    { id:'STR-003', name:'Checkers — La Lucia Mall',     retailer:'Checkers',   branch:'La Lucia Mall',   address:'La Lucia Mall, La Lucia',           town:'La Lucia',   province:'KwaZulu-Natal', email:'lalucia@checkers.co.za',  phone:'031 562 0003' },
+    { id:'STR-004', name:'Pick n Pay — Musgrave Centre', retailer:'Pick n Pay', branch:'Musgrave Centre', address:'Musgrave Centre, Berea',            town:'Durban',     province:'KwaZulu-Natal', email:'musgrave@pnp.co.za',      phone:'031 201 0004' },
+    { id:'STR-005', name:'Clicks — Westville',           retailer:'Clicks',     branch:'Westville Mall',  address:'Westville Mall, Westville',         town:'Westville',  province:'KwaZulu-Natal', email:'westville@clicks.co.za',  phone:'031 266 0005' },
+  ],
   regions: ['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape'],
 };
 

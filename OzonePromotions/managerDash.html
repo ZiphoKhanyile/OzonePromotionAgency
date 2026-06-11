@@ -112,6 +112,67 @@
   </div>
 </div>
 
+<!-- ADD STORE MODAL -->
+<div class="modal-overlay" id="modal-add-store">
+  <div class="modal" style="max-width:560px">
+    <h2>🏪 Add Store</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Store / Retailer Name</label>
+        <input type="text" id="ns-name" placeholder="e.g. Clicks — Ballito">
+      </div>
+      <div class="form-group">
+        <label>Retailer</label>
+        <input type="text" id="ns-retailer" placeholder="e.g. Clicks">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Branch / Mall</label>
+        <input type="text" id="ns-branch" placeholder="e.g. Ballito Junction">
+      </div>
+      <div class="form-group">
+        <label>Contact Email</label>
+        <input type="email" id="ns-email" placeholder="store@retailer.co.za">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Contact Number</label>
+        <input type="tel" id="ns-phone" placeholder="031 000 0000">
+      </div>
+      <div class="form-group">
+        <label>Town / City</label>
+        <input type="text" id="ns-town" placeholder="e.g. Ballito">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>Street Address</label>
+        <input type="text" id="ns-address" placeholder="e.g. 1 Edward Place, Ballito">
+      </div>
+      <div class="form-group">
+        <label>Province</label>
+        <select id="ns-province">
+          <option>KwaZulu-Natal</option>
+          <option>Gauteng</option>
+          <option>Western Cape</option>
+          <option>Eastern Cape</option>
+          <option>Limpopo</option>
+          <option>Mpumalanga</option>
+          <option>North West</option>
+          <option>Free State</option>
+          <option>Northern Cape</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="OZ.closeModal('modal-add-store')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveNewStore()">Add Store →</button>
+    </div>
+  </div>
+</div>
+
 <!-- Chatbot -->
 <button class="chat-fab" id="chat-fab" onclick="toggleChat()">
   💬<span class="chat-badge" id="chat-badge" style="display:none">!</span>
@@ -211,40 +272,139 @@ function showPage(id) {
 
 // ── DASHBOARD ────────────────────────────────────────────────
 function renderDashboard() {
-  const p = window.APPLICATIONS.filter(a=>a.status==='pending').length;
-  const outstanding = window.INVOICES.filter(i=>i.status==='outstanding').reduce((s,i)=>s+i.amount,0);
-  const S = window.SETTINGS, sym = S.currencySymbol;
+  const p = window.APPLICATIONS.filter(a => a.status === 'pending').length;
+
   document.getElementById('page-dashboard').innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Welcome back, Nomsa 👋</h1><p>${new Date().toLocaleDateString('en-ZA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p></div>
+    <div class="page-header-left">
+      <h1>Welcome back, Nomsa 👋</h1>
+      <p>${new Date().toLocaleDateString('en-ZA',{
+        weekday:'long',
+        year:'numeric',
+        month:'long',
+        day:'numeric'
+      })}</p>
+    </div>
   </div>
+
   <div class="stats-grid">
-    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Active Bookings</div><div class="stat-value">12</div><div class="stat-sub">3 this week</div><div class="stat-icon">📅</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Active Promoters</div><div class="stat-value">4</div><div class="stat-sub">1 inactive</div><div class="stat-icon">👥</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Low Stock Items</div><div class="stat-value">1</div><div class="stat-sub">Checkers La Lucia</div><div class="stat-icon">📦</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent2)"><div class="stat-label">Pending Applications</div><div class="stat-value" style="color:${p>0?'var(--oz-accent3)':'inherit'}">${p}</div><div class="stat-sub"><a onclick="showPage('applications')" style="color:var(--oz-accent);cursor:pointer;font-size:.72rem">Review now →</a></div><div class="stat-icon">📋</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Revenue This Month</div><div class="stat-value" style="font-size:1.45rem">${sym}17k</div><div class="stat-sub">${sym}${outstanding.toLocaleString()} outstanding</div><div class="stat-icon">💰</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-red)"><div class="stat-label">Pay Rate</div><div class="stat-value" style="font-size:1.45rem">${sym}${S.hourlyRate}</div><div class="stat-sub">per hour · ${sym}${S.hourlyRate*S.shiftHours} per shift</div><div class="stat-icon">⚙️</div></div>
+
+    <div class="stat-card" style="--accent-color:var(--oz-accent)">
+      <div class="stat-label">Active Bookings</div>
+      <div class="stat-value">12</div>
+      <div class="stat-sub">3 this week</div>
+      <div class="stat-icon">📅</div>
+    </div>
+
+    <div class="stat-card" style="--accent-color:var(--oz-green)">
+      <div class="stat-label">Active Promoters</div>
+      <div class="stat-value">4</div>
+      <div class="stat-sub">1 inactive</div>
+      <div class="stat-icon">👥</div>
+    </div>
+
+    <div class="stat-card" style="--accent-color:var(--oz-accent2)">
+      <div class="stat-label">Pending Applications</div>
+      <div class="stat-value" style="color:${p > 0 ? 'var(--oz-accent3)' : 'inherit'}">
+        ${p}
+      </div>
+      <div class="stat-sub">
+        <a onclick="showPage('applications')"
+           style="color:var(--oz-accent);cursor:pointer;font-size:.72rem">
+           Review now →
+        </a>
+      </div>
+      <div class="stat-icon">📋</div>
+    </div>
+
   </div>
+
   <div class="two-col">
+
     <div class="card">
       <div class="card-title">Recent Activity</div>
+
       <div class="timeline">
-        <div class="timeline-item"><div class="timeline-time">Today 09:02</div><div style="font-size:.84rem">Zanele Dlamini checked in at Clicks Gateway</div></div>
-        <div class="timeline-item"><div class="timeline-time">Today 08:45</div><div style="font-size:.84rem">Booking B005 sent to Zanele Dlamini</div></div>
-        <div class="timeline-item"><div class="timeline-time">Yesterday 17:05</div><div style="font-size:.84rem">Sipho Mokoena submitted feedback report</div></div>
-        <div class="timeline-item"><div class="timeline-time">Yesterday 16:00</div><div style="font-size:.84rem">INV-2025-082 marked paid — ${sym}3,500</div></div>
-        <div class="timeline-item"><div class="timeline-time">2 days ago</div><div style="font-size:.84rem">New application from Lerato Mokoena</div></div>
+
+        <div class="timeline-item">
+          <div class="timeline-time">Today 09:02</div>
+          <div style="font-size:.84rem">
+            Zanele Dlamini checked in at Clicks Gateway
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-time">Today 08:45</div>
+          <div style="font-size:.84rem">
+            Booking B005 sent to Zanele Dlamini
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-time">Yesterday 17:05</div>
+          <div style="font-size:.84rem">
+            Sipho Mokoena submitted feedback report
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-time">Yesterday 16:00</div>
+          <div style="font-size:.84rem">
+            Invoice INV-2025-082 marked paid
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-time">2 days ago</div>
+          <div style="font-size:.84rem">
+            New application from Lerato Mokoena
+          </div>
+        </div>
+
       </div>
     </div>
+
     <div class="card">
+
       <div class="card-title">Needs Attention</div>
-      <div class="notif-item pending"><div class="notif-dot" style="background:var(--oz-accent3)"></div><div><b>Booking Response Overdue</b><br><span style="font-size:.78rem;color:var(--oz-muted)">Sipho Mokoena hasn't responded to B002</span></div></div>
-      <div class="notif-item alert"><div class="notif-dot" style="background:var(--oz-red)"></div><div><b>Critical Stock</b><br><span style="font-size:.78rem;color:var(--oz-muted)">Aqua Mist at 10% at Checkers La Lucia</span></div></div>
-      <div class="notif-item pending"><div class="notif-dot" style="background:var(--oz-accent2)"></div><div><b>${p} Pending Application${p!==1?'s':''}</b><br><span style="font-size:.78rem;color:var(--oz-muted)"><a onclick="showPage('applications')" style="color:var(--oz-accent);cursor:pointer">Review now →</a></span></div></div>
-      <div class="notif-item alert"><div class="notif-dot" style="background:var(--oz-red)"></div><div><b>Invoice Overdue</b><br><span style="font-size:.78rem;color:var(--oz-muted)">INV-2025-085 — ${sym}3,500 — Clicks Gateway</span></div></div>
+
+      <div class="notif-item pending">
+        <div class="notif-dot" style="background:var(--oz-accent3)"></div>
+        <div>
+          <b>Booking Response Overdue</b><br>
+          <span style="font-size:.78rem;color:var(--oz-muted)">
+            Sipho Mokoena hasn't responded to B002
+          </span>
+        </div>
+      </div>
+
+      <div class="notif-item pending">
+        <div class="notif-dot" style="background:var(--oz-accent2)"></div>
+        <div>
+          <b>${p} Pending Application${p !== 1 ? 's' : ''}</b><br>
+          <span style="font-size:.78rem;color:var(--oz-muted)">
+            <a onclick="showPage('applications')"
+               style="color:var(--oz-accent);cursor:pointer">
+               Review now →
+            </a>
+          </span>
+        </div>
+      </div>
+
+      <div class="notif-item alert">
+        <div class="notif-dot" style="background:var(--oz-red)"></div>
+        <div>
+          <b>Invoice Overdue</b><br>
+          <span style="font-size:.78rem;color:var(--oz-muted)">
+            INV-2025-085 — Clicks Gateway
+          </span>
+        </div>
+      </div>
+
     </div>
-  </div>`;
+
+  </div>
+  `;
 }
 
 // ── BOOKINGS ──────────────────────────────────────────────────
@@ -324,40 +484,95 @@ function renderAttendance() {
 
 // ── STOCK ─────────────────────────────────────────────────────
 function renderStock() {
-  const S = window.SETTINGS;
-  const search = document.getElementById('st-search')?.value || '';
-  const storeF = document.getElementById('st-store')?.value || 'all';
-  let data = window.STOCK;
-  if (search) data = data.filter(s => s.product.toLowerCase().includes(search.toLowerCase()) || s.store.toLowerCase().includes(search.toLowerCase()));
-  if (storeF !== 'all') data = data.filter(s => s.store === storeF);
-
   document.getElementById('page-stock').innerHTML = `
+  
   <div class="page-header">
-    <div class="page-header-left"><h1>Stock Management</h1><p>Real-time inventory across all stores</p></div>
-    <div class="page-header-actions"><button class="btn btn-accent" onclick="OZ.toast('Barcode scanner activated')">🔲 Scan Barcode</button></div>
+    <div class="page-header-left">
+      <h1>Stock Delivery Checklist</h1>
+      <p>Record products delivered to stores</p>
+    </div>
   </div>
-  <div class="filter-bar">
-    <input type="text" id="st-search" placeholder="🔍 Search product or store…" value="${search}" oninput="renderStock()">
-    <select id="st-store" onchange="renderStock()">
-      <option value="all"${storeF==='all'?' selected':''}>All Stores</option>
-      ${S.stores.map(s=>`<option${storeF===s?' selected':''}>${s}</option>`).join('')}
-    </select>
-    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} items</span>
+
+  <div class="card">
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Brand</label>
+        <input type="text" placeholder="e.g. Smirnoff Vodka">
+      </div>
+
+      <div class="form-group">
+        <label>Product Type</label>
+        <input type="text" placeholder="e.g. 750ml Bottle">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date Delivered</label>
+        <input type="date">
+      </div>
+
+      <div class="form-group">
+        <label>Quantity Delivered</label>
+        <input type="number" placeholder="Units">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Store / Location</label>
+      <input type="text" placeholder="e.g. Shoprite Gateway Mall">
+    </div>
+
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea placeholder="Additional information"></textarea>
+    </div>
+
+    <button class="btn btn-accent">
+      Save Checklist
+    </button>
+
   </div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>SKU</th><th>Product</th><th>Store</th><th>Level</th><th>Qty / PAR</th><th>Status</th><th>Barcode</th><th>Actions</th></tr></thead><tbody>
-  ${data.map(s=>{
-    const p=Math.round((s.qty/s.par)*100);
-    const c=p>60?'fill-high':p>S.lowStockThresholdPct?'fill-med':'fill-low';
-    const b=p>60?'badge-green':p>S.lowStockThresholdPct?'badge-amber':'badge-red';
-    return `<tr><td><code style="font-size:.73rem;color:var(--oz-dim)">${s.sku}</code></td>
-    <td style="font-weight:500">${s.product}</td><td>${s.store}</td>
-    <td><div class="stock-level"><div class="stock-bar"><div class="stock-fill ${c}" style="width:${p}%"></div></div><span style="font-size:.72rem;color:var(--oz-muted)">${p}%</span></div></td>
-    <td><span class="badge ${b}">${s.qty} / ${s.par}</span></td>
-    <td>${p<=S.lowStockThresholdPct?`<span class="badge badge-red">Low Stock</span>`:`<span class="badge badge-green">OK</span>`}</td>
-    <td><code style="font-size:.68rem;color:var(--oz-dim)">${s.barcode}</code></td>
-    <td><button class="btn btn-sm btn-outline" onclick="OZ.toast('Stock updated')">Update</button></td></tr>`;
-  }).join('')}
-  </tbody></table></div></div>`;
+
+  <div style="height:20px"></div>
+
+  <div class="card">
+
+    <div class="card-title">
+      Recent Deliveries
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Brand</th>
+            <th>Product</th>
+            <th>Date</th>
+            <th>Quantity</th>
+            <th>Store</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          <tr>
+            <td>Smirnoff</td>
+            <td>750ml Vodka</td>
+            <td>2026-06-11</td>
+            <td>120</td>
+            <td>Shoprite Gateway</td>
+            <td><span class="badge badge-green">Delivered</span></td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  `;
 }
 
 // ── REPORTS ───────────────────────────────────────────────────
@@ -444,41 +659,140 @@ function renderStoreQR() {
 
 // ── INVOICES ──────────────────────────────────────────────────
 function renderInvoices() {
-  const sym = window.SETTINGS.currencySymbol;
-  const period = window.period_invoices || 'month';
-  const statusF = document.getElementById('inv-status')?.value || 'all';
-  let data = OZ.filterByPeriod(window.INVOICES, 'date', period);
-  if (statusF !== 'all') data = data.filter(i=>i.status===statusF);
-  const total = data.reduce((s,i)=>s+i.amount,0);
-  const paid  = data.filter(i=>i.status==='paid').reduce((s,i)=>s+i.amount,0);
+  const storeOptions = window.SETTINGS.stores.map(s =>
+    `<option value="${s.id}">${s.name}</option>`
+  ).join('');
 
   document.getElementById('page-invoices').innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Invoices</h1><p>Invoice management and generation</p></div>
-    <div class="page-header-actions"><button class="btn btn-accent" onclick="OZ.openModal('modal-invoice')">+ New Invoice</button></div>
+    <div class="page-header-left">
+      <h1>Store Invoices</h1>
+      <p>Create invoices for stores where we represent brands</p>
+    </div>
   </div>
-  <div class="filter-bar">
-    <select id="inv-status" onchange="renderInvoices()">
-      <option value="all"${statusF==='all'?' selected':''}>All Status</option>
-      <option value="paid"${statusF==='paid'?' selected':''}>Paid</option>
-      <option value="outstanding"${statusF==='outstanding'?' selected':''}>Outstanding</option>
-    </select>
-    ${OZ.periodTabsHtml('invoices','renderInvoices()')}
+
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Brand / Product Being Promoted</label>
+        <input id="brandName" type="text" placeholder="e.g. Vodka Now" oninput="updateInvoicePreview()">
+      </div>
+      <div class="form-group">
+        <label>Store</label>
+        <select id="storeSelect" onchange="onInvoiceStoreChange()">
+          <option value="">— Select a store —</option>
+          ${storeOptions}
+        </select>
+      </div>
+    </div>
+
+    <!-- Store contact info auto-fill -->
+    <div id="store-info-box" style="display:none;background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.15);border-radius:var(--r);padding:12px 16px;margin-bottom:1rem;font-size:.82rem;color:var(--oz-muted);line-height:1.8">
+      <div id="store-info-content"></div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Invoice Date</label>
+        <input id="invoiceDate" type="date" oninput="updateInvoicePreview()">
+      </div>
+      <div class="form-group">
+        <label>Units Sold / Sampled</label>
+        <input id="unitsSold" type="number" value="0" oninput="calculateInvoice()">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Price Per Unit (R)</label>
+        <input id="unitPrice" type="number" value="0" oninput="calculateInvoice()">
+      </div>
+      <div class="form-group">
+        <label>VAT (%)</label>
+        <input id="vatRate" type="number" value="15" oninput="calculateInvoice()">
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:15px;text-align:center">
+      <div style="font-size:.78rem;color:var(--oz-muted);margin-bottom:4px">Total Invoice Amount</div>
+      <div style="font-size:2rem;font-weight:bold;color:var(--oz-accent)">R<span id="invoiceTotal">0.00</span></div>
+      <div style="font-size:.78rem;color:var(--oz-muted);margin-top:4px">Excl. VAT: R<span id="invoiceSubtotal">0.00</span> · VAT: R<span id="invoiceVat">0.00</span></div>
+    </div>
   </div>
-  <div class="stats-grid" style="margin-bottom:1rem">
-    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Total Invoiced</div><div class="stat-value" style="font-size:1.4rem">${sym}${total.toLocaleString()}</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Paid</div><div class="stat-value" style="font-size:1.4rem;color:var(--oz-green)">${sym}${paid.toLocaleString()}</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-red)"><div class="stat-label">Outstanding</div><div class="stat-value" style="font-size:1.4rem;color:var(--oz-red)">${sym}${(total-paid).toLocaleString()}</div></div>
-  </div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>Invoice #</th><th>Client</th><th>Service</th><th>Amount</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-  ${data.map(i=>`<tr>
-    <td><code style="color:var(--oz-accent);font-size:.78rem">${i.id}</code></td><td>${i.client}</td>
-    <td style="font-size:.78rem;color:var(--oz-muted)">${i.service}</td><td style="font-weight:600">${sym}${i.amount.toLocaleString()}</td><td>${i.date}</td>
-    <td><span class="badge ${i.status==='paid'?'badge-green':'badge-red'}">${i.status}</span></td>
-    <td style="display:flex;gap:5px"><button class="btn btn-sm btn-ghost" onclick="OZ.toast('PDF downloaded')">⬇ PDF</button>${i.status==='outstanding'?`<button class="btn btn-sm btn-success" onclick="OZ.toast('Marked as paid')">Mark Paid</button>`:''}</td>
-  </tr>`).join('')}
-  </tbody></table></div></div>`;
+
+  <div style="height:20px"></div>
+
+  <div class="card">
+    <div class="card-title">📄 Invoice Preview</div>
+    <table>
+      <tr><td><b>Brand Promoted</b></td><td id="prevBrand">—</td></tr>
+      <tr><td><b>Store</b></td><td id="prevStore">—</td></tr>
+      <tr><td><b>Store Address</b></td><td id="prevAddress">—</td></tr>
+      <tr><td><b>Store Email</b></td><td id="prevEmail">—</td></tr>
+      <tr><td><b>Store Phone</b></td><td id="prevPhone">—</td></tr>
+      <tr><td><b>Invoice Date</b></td><td id="prevDate">—</td></tr>
+      <tr><td><b>Units</b></td><td id="prevUnits">—</td></tr>
+      <tr><td><b>Subtotal</b></td><td id="prevSubtotal">—</td></tr>
+      <tr><td><b>VAT</b></td><td id="prevVat">—</td></tr>
+      <tr><td><b>Total</b></td><td id="prevTotal" style="font-weight:700;color:var(--oz-accent)">—</td></tr>
+    </table>
+    <div style="margin-top:1rem;display:flex;gap:8px">
+      <button class="btn btn-accent" onclick="OZ.toast('🖨 Printing invoice…')">🖨 Print Invoice</button>
+      <button class="btn btn-outline" onclick="OZ.toast('📧 Invoice emailed to store')">📧 Email to Store</button>
+    </div>
+  </div>`;
+
+  // Set today's date as default
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('invoiceDate').value = today;
+  updateInvoicePreview();
 }
+
+function onInvoiceStoreChange() {
+  const sel = document.getElementById('storeSelect');
+  const store = window.SETTINGS.stores.find(s => s.id === sel.value);
+  const box = document.getElementById('store-info-box');
+  const content = document.getElementById('store-info-content');
+  if (store) {
+    box.style.display = 'block';
+    content.innerHTML = `<strong>${store.name}</strong><br>📍 ${store.address}, ${store.town}, ${store.province}<br>📧 ${store.email || '—'} &nbsp;|&nbsp; 📞 ${store.phone || '—'}`;
+  } else {
+    box.style.display = 'none';
+  }
+  calculateInvoice();
+}
+
+function calculateInvoice() {
+  const units    = Number(document.getElementById('unitsSold')?.value || 0);
+  const price    = Number(document.getElementById('unitPrice')?.value || 0);
+  const vatPct   = Number(document.getElementById('vatRate')?.value || 0);
+  const subtotal = units * price;
+  const vatAmt   = subtotal * (vatPct / 100);
+  const total    = subtotal + vatAmt;
+
+  const fmt = v => v.toFixed(2);
+  document.getElementById('invoiceTotal').textContent    = fmt(total);
+  document.getElementById('invoiceSubtotal').textContent = fmt(subtotal);
+  document.getElementById('invoiceVat').textContent      = fmt(vatAmt);
+
+  // Update preview
+  const sel   = document.getElementById('storeSelect');
+  const store = window.SETTINGS.stores.find(s => s.id === sel?.value);
+  document.getElementById('prevBrand').textContent    = document.getElementById('brandName')?.value || '—';
+  document.getElementById('prevStore').textContent    = store?.name || '—';
+  document.getElementById('prevAddress').textContent  = store ? `${store.address}, ${store.town}, ${store.province}` : '—';
+  document.getElementById('prevEmail').textContent    = store?.email || '—';
+  document.getElementById('prevPhone').textContent    = store?.phone || '—';
+  document.getElementById('prevDate').textContent     = document.getElementById('invoiceDate')?.value || '—';
+  document.getElementById('prevUnits').textContent    = units ? `${units} units @ R${price}` : '—';
+  document.getElementById('prevSubtotal').textContent = `R${fmt(subtotal)}`;
+  document.getElementById('prevVat').textContent      = `R${fmt(vatAmt)} (${vatPct}%)`;
+  document.getElementById('prevTotal').textContent    = `R${fmt(total)}`;
+}
+
+function updateInvoicePreview() { calculateInvoice(); }
+
+
 
 // ── PROMOTERS ─────────────────────────────────────────────────
 function renderPromoters() {
@@ -693,7 +1007,6 @@ function renderBI() {
 // ── SETTINGS ──────────────────────────────────────────────────
 function renderSettings() {
   const S = window.SETTINGS;
-  const storeTagsHtml = S.stores.map((s,i)=>`<span class="store-tag">${s}<button onclick="removeStore(${i})">✕</button></span>`).join('');
   document.getElementById('page-settings').innerHTML = `
   <div class="page-header"><div class="page-header-left"><h1>Settings</h1><p>System-wide configuration — changes apply immediately</p></div></div>
   <div class="settings-grid">
@@ -716,12 +1029,29 @@ function renderSettings() {
       <div class="setting-row"><div><div class="sr-label">Show Earnings to Promoter</div></div><div class="sr-control"><label class="toggle-wrap"><input type="checkbox" ${S.showEarningsToPromoter?'checked':''} onchange="window.SETTINGS.showEarningsToPromoter=this.checked"><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><div><div class="sr-label">GPS Verification</div></div><div class="sr-control"><label class="toggle-wrap"><input type="checkbox" ${S.enableGPSVerification?'checked':''} onchange="window.SETTINGS.enableGPSVerification=this.checked"><span class="toggle-slider"></span></label></div></div>
     </div>
-    <div class="settings-card">
-      <div class="settings-card-title">🏪 Store Management</div>
-      <div style="margin-bottom:.75rem"><div style="font-size:.78rem;color:var(--oz-muted);margin-bottom:6px">Active stores</div><div id="store-tags-wrap">${storeTagsHtml}</div></div>
-      <div style="display:flex;gap:7px;margin-top:.75rem">
-        <input class="settings-input-wide" type="text" id="new-store-input" placeholder="e.g. Clicks — Durban" style="flex:1;width:auto">
-        <button class="btn btn-accent btn-sm" onclick="addStore()">+ Add</button>
+    <div class="settings-card" style="grid-column:1/-1">
+      <div class="settings-card-title" style="display:flex;align-items:center;justify-content:space-between">
+        🏪 Store Management
+        <button class="btn btn-accent btn-sm" onclick="OZ.openModal('modal-add-store')">+ Add Store</button>
+      </div>
+      <div style="font-size:.78rem;color:var(--oz-muted);margin-bottom:1rem">These stores appear in the invoice dropdown and booking forms. Add full contact details for accurate invoicing.</div>
+      <div id="store-cards-wrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+        ${S.stores.map((s,i)=>`
+        <div class="card" style="padding:1rem;margin:0">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem">
+            <div>
+              <div style="font-weight:700;font-size:.9rem">${s.name}</div>
+              <div style="font-size:.75rem;color:var(--oz-accent);margin-top:2px">${s.retailer} · ${s.branch}</div>
+            </div>
+            <button onclick="removeStore(${i})" style="background:none;border:none;color:var(--oz-dim);cursor:pointer;font-size:1rem;padding:0 0 0 8px" title="Remove store">✕</button>
+          </div>
+          <div style="font-size:.78rem;color:var(--oz-muted);line-height:1.7">
+            <div>📍 ${s.address}, ${s.town}</div>
+            <div>🗺 ${s.province}</div>
+            <div>📧 ${s.email||'—'}</div>
+            <div>📞 ${s.phone||'—'}</div>
+          </div>
+        </div>`).join('')}
       </div>
     </div>
     <div class="settings-card">
@@ -739,8 +1069,29 @@ function renderSettings() {
     </div>
   </div>`;
 }
-function addStore(){const v=document.getElementById('new-store-input').value.trim();if(!v){OZ.toast('Store name required');return;}window.SETTINGS.stores.push(v);document.getElementById('new-store-input').value='';document.getElementById('store-tags-wrap').innerHTML=window.SETTINGS.stores.map((s,i)=>`<span class="store-tag">${s}<button onclick="removeStore(${i})">✕</button></span>`).join('');OZ.toast('Store added: '+v);}
-function removeStore(i){window.SETTINGS.stores.splice(i,1);document.getElementById('store-tags-wrap').innerHTML=window.SETTINGS.stores.map((s,j)=>`<span class="store-tag">${s}<button onclick="removeStore(${j})">✕</button></span>`).join('');OZ.toast('Store removed');}
+function saveNewStore() {
+  const name     = document.getElementById('ns-name').value.trim();
+  const retailer = document.getElementById('ns-retailer').value.trim();
+  const branch   = document.getElementById('ns-branch').value.trim();
+  const email    = document.getElementById('ns-email').value.trim();
+  const phone    = document.getElementById('ns-phone').value.trim();
+  const town     = document.getElementById('ns-town').value.trim();
+  const address  = document.getElementById('ns-address').value.trim();
+  const province = document.getElementById('ns-province').value;
+  if (!name || !retailer || !town) { OZ.toast('Store name, retailer and town are required'); return; }
+  const id = 'STR-' + String(window.SETTINGS.stores.length + 1).padStart(3, '0');
+  window.SETTINGS.stores.push({ id, name, retailer, branch, address, town, province, email, phone });
+  ['ns-name','ns-retailer','ns-branch','ns-email','ns-phone','ns-town','ns-address'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  OZ.closeModal('modal-add-store');
+  OZ.toast('✅ Store added: ' + name);
+  renderSettings();
+}
+function removeStore(i) {
+  const name = window.SETTINGS.stores[i]?.name || 'store';
+  window.SETTINGS.stores.splice(i, 1);
+  OZ.toast('Store removed: ' + name);
+  renderSettings();
+}
 function applyAccent(c){window.SETTINGS.accentColor=c;document.documentElement.style.setProperty('--oz-accent',c);OZ.toast('Accent updated');}
 
 // ── CHATBOT ────────────────────────────────────────────────────
