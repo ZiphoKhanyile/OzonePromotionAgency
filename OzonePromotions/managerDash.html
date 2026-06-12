@@ -6,6 +6,7 @@
 <title>Manager Dashboard — Ozone Promotions</title>
 <link rel="stylesheet" href="styles.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -39,24 +40,78 @@
 
 <!-- MODALS -->
 <div class="modal-overlay" id="modal-add-booking">
-  <div class="modal">
-    <h2>📅 Create New Booking</h2>
-    <div style="background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.18);border-radius:var(--r);padding:10px 13px;margin-bottom:1rem;font-size:.87rem">
-      Pay Rate: R<span id="booking-rate-display">65</span>/hr · 8-hour shift = <strong style="color:var(--oz-green)">R<span id="booking-total-display">520</span></strong>
+  <div class="modal" style="max-width:640px">
+    <h2>📬 Post Job Offer</h2>
+
+    <!-- Dynamic pay info -->
+    <div id="bk-pay-info" style="background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.18);border-radius:var(--r);padding:10px 14px;margin-bottom:1rem;font-size:.87rem">
+      Pay Rate: <strong id="bk-rate-label" style="color:var(--oz-green)">R45/hr</strong> ·
+      <strong id="bk-hrs-label" style="color:var(--oz-green)">8</strong>hr shift =
+      <strong id="bk-total-label" style="color:var(--oz-green)">R360</strong> per promoter
+    </div>
+
+    <!-- Store + Date + Shift -->
+    <div class="form-row">
+      <div class="form-group"><label>Store / Location</label><select id="bk-store"><option value="">Loading stores…</option></select></div>
+      <div class="form-group"><label>Campaign / Product</label><select id="bk-product"><option value="">Loading campaigns…</option></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Promoter</label><select id="bk-promoter"><option>Zanele Dlamini</option><option>Sipho Mokoena</option><option>Ayanda Nkosi</option><option>Thandeka Zulu</option></select></div>
-      <div class="form-group"><label>Store</label><select id="bk-store"><option>Clicks — Gateway</option><option>Checkers — La Lucia</option><option>Dis-Chem — Pavilion</option><option>Pick n Pay — Musgrave</option></select></div>
+     <div class="form-group"><label>Shift Date <span style="color:var(--oz-red)">*</span></label><input type="date" id="bk-date"><div id="bk-date-info" style="margin-top:5px"></div></div>
+      <div class="form-group"><label>Shift Slot</label>
+        <select id="bk-shift">
+          <option value="08:00-16:00">08:00 – 16:00</option>
+          <option value="09:00-17:00" selected>09:00 – 17:00</option>
+          <option value="10:00-18:00">10:00 – 18:00</option>
+          <option value="12:00-20:00">12:00 – 20:00</option>
+        </select>
+      </div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label>Date</label><input type="date" id="bk-date"></div>
-      <div class="form-group"><label>Shift</label><select id="bk-shift"><option>08:00–16:00</option><option>09:00–17:00</option><option>10:00–18:00</option><option>12:00–20:00</option></select></div>
+
+    <!-- Required promoters -->
+    <div class="form-group">
+      <label>Promoters Required <span style="font-size:.7rem;color:var(--oz-dim)">(first to accept fill the spots)</span></label>
+      <input type="number" id="bk-required" value="1" min="1" max="50" style="width:80px">
     </div>
-    <div class="form-group"><label>Product / Campaign</label><select id="bk-product"><option>Aqua Body Mist 200ml</option><option>Rose Glow Serum 30ml</option></select></div>
-    <div class="form-group"><label>Notes for Promoter</label><textarea id="bk-notes" placeholder="Special instructions…"></textarea></div>
+
+    <!-- Targeting mode -->
+    <div style="background:var(--oz-surface2);border:1px solid var(--oz-border);border-radius:var(--r);padding:12px 14px;margin-bottom:.85rem">
+      <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-muted);font-weight:600;margin-bottom:8px">Who receives this offer?</div>
+      <div style="display:flex;gap:1rem;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:.84rem;cursor:pointer">
+          <input type="radio" name="bk-mode" value="province" id="bk-mode-province" checked onchange="toggleBookingMode('province')"> Broadcast to a Province
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.84rem;cursor:pointer">
+          <input type="radio" name="bk-mode" value="handpick" id="bk-mode-handpick" onchange="toggleBookingMode('handpick')"> Hand-pick Promoters
+        </label>
+      </div>
+
+      <!-- Province mode -->
+      <div id="bk-province-section">
+        <div class="form-group" style="margin-bottom:4px">
+          <label>Province</label>
+          <select id="bk-province" onchange="onProvinceChange()">
+            <option value="">All Provinces</option>
+            <option>KwaZulu-Natal</option><option>Gauteng</option><option>Western Cape</option>
+            <option>Eastern Cape</option><option>Limpopo</option><option>Mpumalanga</option>
+            <option>North West</option><option>Free State</option><option>Northern Cape</option>
+          </select>
+        </div>
+        <div id="bk-province-count" style="font-size:.76rem;color:var(--oz-muted);margin-top:4px"></div>
+      </div>
+
+      <!-- Hand-pick mode -->
+      <div id="bk-handpick-section" style="display:none">
+        <div style="font-size:.76rem;color:var(--oz-muted);margin-bottom:6px">Select one or more promoters:</div>
+        <div id="bk-promoter-picker" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding-right:4px"></div>
+        <div id="bk-pick-count" style="font-size:.76rem;color:var(--oz-accent);margin-top:6px;font-weight:600">0 selected</div>
+      </div>
+    </div>
+
+    <div class="form-group"><label>Notes for Promoters</label><textarea id="bk-notes" placeholder="Special instructions, what to wear, where to report…"></textarea></div>
+
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="OZ.closeModal('modal-add-booking')">Cancel</button>
-      <button class="btn btn-accent" onclick="createBooking()">Send Booking →</button>
+      <button class="btn btn-accent" onclick="createJobOffer()">📬 Post Offer →</button>
     </div>
   </div>
 </div>
@@ -93,21 +148,72 @@
 </div>
 
 <div class="modal-overlay" id="modal-add-product">
-  <div class="modal">
-    <h2>🆕 Add Product / Campaign</h2>
+  <div class="modal" style="max-width:600px">
+    <h2 id="campaign-modal-title">🍾 Add Campaign / Product</h2>
+    <input type="hidden" id="nc-edit-id">
     <div class="form-row">
-      <div class="form-group"><label>Product Name</label><input type="text" id="np-name" placeholder="e.g. Vitamin C Brightener"></div>
-      <div class="form-group"><label>SKU</label><input type="text" id="np-sku" placeholder="e.g. OZ-007"></div>
+      <div class="form-group"><label>Product / Campaign Name <span style="color:var(--oz-red)">*</span></label><input type="text" id="nc-name" placeholder="e.g. Vodka Now Original 750ml"></div>
+      <div class="form-group"><label>Brand</label><input type="text" id="nc-brand" placeholder="e.g. Vodka Now"></div>
     </div>
-    <div class="form-group"><label>Description / Talking Points</label><textarea id="np-desc" placeholder="Key benefits and what promoters should highlight to customers…"></textarea></div>
     <div class="form-row">
-      <div class="form-group"><label>Category</label><select id="np-cat"><option>Body Care</option><option>Skincare</option><option>Hair Care</option><option>Fragrance</option><option>Gift Set / Bundle</option></select></div>
-      <div class="form-group"><label>Status</label><select id="np-status"><option value="active">Active — Available to book</option><option value="draft">Draft — Not yet active</option></select></div>
+      <div class="form-group">
+        <label>Category</label>
+        <select id="nc-cat">
+          <optgroup label="🍺 Beverages">
+            <option value="Spirits">Spirits</option>
+            <option value="Beer &amp; Cider">Beer &amp; Cider</option>
+            <option value="Wine">Wine</option>
+            <option value="RTD &amp; Coolers">RTD &amp; Coolers</option>
+            <option value="Non-Alcoholic Drinks">Non-Alcoholic Drinks</option>
+          </optgroup>
+          <optgroup label="🍔 Food">
+            <option value="Snacks &amp; Confectionery">Snacks &amp; Confectionery</option>
+            <option value="Dairy &amp; Chilled">Dairy &amp; Chilled</option>
+            <option value="Health Foods">Health Foods</option>
+            <option value="Condiments &amp; Sauces">Condiments &amp; Sauces</option>
+          </optgroup>
+          <optgroup label="💄 Health &amp; Beauty">
+            <option value="Skincare">Skincare</option>
+            <option value="Fragrance">Fragrance</option>
+            <option value="Hair Care">Hair Care</option>
+            <option value="Body Care">Body Care</option>
+            <option value="Cosmetics">Cosmetics</option>
+          </optgroup>
+          <optgroup label="🏠 Household &amp; Other">
+            <option value="Cleaning Products">Cleaning Products</option>
+            <option value="Tobacco &amp; Vaping">Tobacco &amp; Vaping</option>
+            <option value="Technology">Technology</option>
+            <option value="Other">Other</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="form-group"><label>Activation Objective</label><input type="text" id="nc-objective" placeholder="e.g. Sampling &amp; Sales Drive"></div>
     </div>
-    <div class="form-group"><label>Barcode (optional)</label><input type="text" id="np-barcode" placeholder="8901234567890"></div>
+    <div class="form-group"><label>Product Description</label><textarea id="nc-desc" placeholder="What is this product? Key benefits…"></textarea></div>
+    <div class="form-group"><label>Talking Points for Promoters</label><textarea id="nc-talking" placeholder="• Key benefit 1&#10;• Key benefit 2&#10;• Price point / comparison" style="min-height:90px"></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Target Audience</label><input type="text" id="nc-audience" placeholder="e.g. Adults 25–45, social drinkers"></div>
+      <div class="form-group"><label>Retail Price (ZAR, optional)</label><input type="number" id="nc-price" placeholder="189.00" step="0.01" min="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Campaign Start</label><input type="date" id="nc-start"></div>
+      <div class="form-group"><label>Campaign End</label><input type="date" id="nc-end"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Min Age Requirement</label><input type="number" id="nc-minage" value="18" min="0" max="21"></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px;padding-top:1.4rem">
+        <label class="toggle-wrap"><input type="checkbox" id="nc-sampling" checked><span class="toggle-slider"></span></label>
+        <span style="font-size:.84rem">Sampling Allowed</span>
+      </div>
+    </div>
+    <div class="form-group"><label>⚖️ Compliance Notes</label><textarea id="nc-compliance" placeholder="e.g. No sampling to persons under 18. Display legal drinking age signage."></textarea></div>
+    <div class="form-group">
+      <label>Status</label>
+      <select id="nc-status"><option value="active">Active — Available for bookings</option><option value="upcoming">Upcoming — Not yet live</option><option value="paused">Paused</option></select>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="OZ.closeModal('modal-add-product')">Cancel</button>
-      <button class="btn btn-accent" onclick="addProduct()">Add Product</button>
+      <button class="btn btn-accent" onclick="saveCampaign()">Save Campaign →</button>
     </div>
   </div>
 </div>
@@ -196,6 +302,7 @@
 <script src="javascript/supabase.js"></script>
 <script src="javascript/auth-session.js"></script>
 <script src="javascript/index.js"></script>
+
 <script>
 // ── SESSION CHECK ─────────────────────────────────────────────
 (async () => {
@@ -229,15 +336,24 @@ const NAV = [
   { section:'System',        items:[{id:'settings',icon:'⚙️',label:'Settings'}] },
 ];
 
-function buildNav() {
+async function buildNav() {
+  // Fetch live pending count from DB
+  let pendingCount = 0;
+  try {
+    const { count } = await window.supabaseClient
+      .from('applications')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    pendingCount = count || 0;
+  } catch(e) { /* fall back to 0 */ }
+
   let html = '';
   NAV.forEach(sec => {
     html += `<div class="nav-section">${sec.section}</div>`;
     sec.items.forEach(item => {
       let badge = '';
-      if (item.dynamicBadge) {
-        const cnt = (_appData && _appData.length) ? _appData.filter(a=>a.status==='pending').length : (window.APPLICATIONS||[]).filter(a=>a.status==='pending').length;
-        if (cnt > 0) badge = `<span class="nbadge nbadge-red">${cnt}</span>`;
+      if (item.dynamicBadge && pendingCount > 0) {
+        badge = `<span class="nbadge nbadge-red">${pendingCount}</span>`;
       }
       html += `<div class="nav-item" id="nav-${item.id}" onclick="showPage('${item.id}')"><span class="nav-icon">${item.icon}</span><span>${item.label}</span>${badge}</div>`;
     });
@@ -272,7 +388,7 @@ function showPage(id) {
 
 // ── DASHBOARD ────────────────────────────────────────────────
 function renderDashboard() {
-  const p = (_appData && _appData.length) ? _appData.filter(a => a.status === 'pending').length : (window.APPLICATIONS||[]).filter(a => a.status === 'pending').length;
+  const p = window.APPLICATIONS.filter(a => a.status === 'pending').length;
 
   document.getElementById('page-dashboard').innerHTML = `
   <div class="page-header">
@@ -408,19 +524,49 @@ function renderDashboard() {
 }
 
 // ── BOOKINGS ──────────────────────────────────────────────────
-function renderBookings() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const period = window.period_bookings || 'month';
-  const search = document.getElementById('bk-search')?.value || '';
-  const statusF = document.getElementById('bk-status-filter')?.value || 'all';
-  let data = OZ.filterByPeriod(window.BOOKINGS, 'date', period);
-  if (search) data = data.filter(b => b.promoter.toLowerCase().includes(search.toLowerCase()) || b.store.toLowerCase().includes(search.toLowerCase()));
-  if (statusF !== 'all') data = data.filter(b => b.status === statusF);
+// ── JOB OFFERS (Bookings) ─────────────────────────────────────
 
-  document.getElementById('page-bookings').innerHTML = `
+let _selectedPromoters = [];
+
+async function renderBookings() {
+  const el = document.getElementById('page-bookings');
+  const S  = window.SETTINGS;
+  const period  = window.period_bookings || 'month';
+  const search  = document.getElementById('bk-search')?.value  || '';
+  const statusF = document.getElementById('bk-status-filter')?.value || 'all';
+
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading job offers…</div>`;
+
+  const db = window.supabaseClient;
+  let q = db.from('bookings').select(`
+    id, ref_number, shift_date, shift_slot, shift_hours, hourly_rate_zar, total_pay_zar,
+    status, notes_for_promoter, required_promoters, province_target,
+    promoter:promoter_id(first_name,last_name),
+    store:store_id(name,retailer,branch),
+    product:product_id(name,brand)
+  `).order('shift_date', { ascending: false }).limit(300);
+
+  const [from, to] = OZ.getPeriodFilter ? OZ.getPeriodFilter(period) : [null,null];
+  if (from) q = q.gte('shift_date', from);
+  if (to)   q = q.lte('shift_date', to);
+  if (statusF !== 'all') q = q.eq('status', statusF);
+
+  const { data: rows } = await q;
+  let data = rows || [];
+  if (search) data = data.filter(b => {
+    const name  = b.promoter ? `${b.promoter.first_name} ${b.promoter.last_name}` : '';
+    const store = b.store ? `${b.store.name} ${b.store.branch||''}` : '';
+    return (name + store).toLowerCase().includes(search.toLowerCase());
+  });
+
+  const fmtStore    = b => b.store    ? (b.store.retailer    ? `${b.store.retailer} — ${b.store.branch}`       : b.store.name)  : '—';
+  const fmtCampaign = b => b.product  ? (b.product.brand     ? `${b.product.brand} · ${b.product.name}`        : b.product.name): '—';
+  const fmtPromoter = b => b.promoter ? `${b.promoter.first_name} ${b.promoter.last_name}` : (b.province_target ? `📍 ${b.province_target}` : '—');
+
+  el.innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Bookings</h1><p>Manage promoter assignments and activations</p></div>
-    <div class="page-header-actions"><button class="btn btn-accent" onclick="OZ.openModal('modal-add-booking')">+ New Booking</button></div>
+    <div class="page-header-left"><h1>Job Offers</h1><p>Post upcoming activations — province broadcast or hand-pick</p></div>
+    <div class="page-header-actions"><button class="btn btn-accent" onclick="openJobOfferModal()">+ Post Job Offer</button></div>
   </div>
   <div class="filter-bar">
     <input type="text" id="bk-search" placeholder="🔍 Search promoter or store…" value="${search}" oninput="renderBookings()">
@@ -429,57 +575,307 @@ function renderBookings() {
       <option value="pending"${statusF==='pending'?' selected':''}>Pending</option>
       <option value="confirmed"${statusF==='confirmed'?' selected':''}>Confirmed</option>
       <option value="declined"${statusF==='declined'?' selected':''}>Declined</option>
+      <option value="completed"${statusF==='completed'?' selected':''}>Completed</option>
     </select>
     ${OZ.periodTabsHtml('bookings','renderBookings()')}
-    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} result${data.length!==1?'s':''}</span>
+    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} offer${data.length!==1?'s':''}</span>
   </div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>Ref</th><th>Promoter</th><th>Store</th><th>Date</th><th>Shift</th><th>Product</th><th>Pay</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-  ${data.length ? data.map(b=>`<tr>
-    <td><code style="font-size:.74rem;color:var(--oz-accent)">${b.id}</code></td>
-    <td>${b.promoter}</td><td>${b.store}</td><td>${b.date}</td>
-    <td style="font-size:.78rem;color:var(--oz-muted)">${b.shift}</td>
-    <td style="font-size:.8rem">${b.product}</td>
-    <td><span class="pay-badge">${sym}${S.hourlyRate*S.shiftHours}</span></td>
-    <td><span class="badge ${b.status==='confirmed'?'badge-green':b.status==='declined'?'badge-red':'badge-amber'}">${b.status}</span></td>
-    <td>${b.status==='pending'?`<button class="btn btn-sm btn-danger" onclick="OZ.toast('Booking cancelled')">Cancel</button>`:''}
-        ${b.status==='confirmed'?`<span style="font-size:.78rem;color:var(--oz-dim)">Locked</span>`:''}
-        ${b.status==='declined'?`<span style="font-size:.78rem;color:var(--oz-dim)">—</span>`:''}</td>
-  </tr>`).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--oz-dim);padding:2rem">No bookings found for this period</td></tr>`}
-  </tbody></table></div></div>`;
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr><th>Ref</th><th>Sent To</th><th>Store</th><th>Campaign</th><th>Date</th><th>Slot</th><th>Pay/Promoter</th><th>Required</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody>
+    ${data.length ? data.map(b => `<tr>
+      <td><code style="font-size:.72rem;color:var(--oz-accent)">${b.ref_number}</code></td>
+      <td style="font-size:.82rem">${fmtPromoter(b)}</td>
+      <td style="font-size:.8rem">${fmtStore(b)}</td>
+      <td style="font-size:.78rem;color:var(--oz-muted);max-width:150px">${fmtCampaign(b)}</td>
+      <td>${b.shift_date}</td>
+      <td style="font-size:.76rem;color:var(--oz-dim)">${b.shift_slot}</td>
+      <td><span class="pay-badge">R${((b.hourly_rate_zar||S.hourlyRate)*(b.shift_hours||S.shiftHours)).toLocaleString()}</span></td>
+      <td><span class="badge badge-cyan">${b.required_promoters || 1} needed</span></td>
+      <td><span class="badge ${b.status==='confirmed'?'badge-green':b.status==='declined'?'badge-red':b.status==='completed'?'badge-cyan':'badge-amber'}">${b.status}</span></td>
+      <td>${b.status==='pending'?`<button class="btn btn-sm btn-danger" onclick="cancelOffer('${b.id}')">Cancel</button>`:`<span style="font-size:.76rem;color:var(--oz-dim)">—</span>`}</td>
+    </tr>`).join('') : `<tr><td colspan="10" style="text-align:center;color:var(--oz-dim);padding:2rem">No job offers for this period</td></tr>`}
+    </tbody>
+  </table></div></div>`;
 }
-function createBooking() { OZ.closeModal('modal-add-booking'); OZ.toast('📅 Booking sent to promoter!'); }
+
+async function openJobOfferModal() {
+  const db = window.supabaseClient;
+  const S  = window.SETTINGS;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('bk-date').min   = today;
+  document.getElementById('bk-date').value = '';
+  document.getElementById('bk-rate-label').textContent  = `R${S.hourlyRate}/hr`;
+  document.getElementById('bk-hrs-label').textContent   = S.shiftHours;
+  document.getElementById('bk-total-label').textContent = `R${(S.hourlyRate * S.shiftHours).toLocaleString()}`;
+  const { data: stores } = window._cachedStores?.length
+  ? { data: window._cachedStores }
+  : await db.from('stores').select('id,name,retailer,branch').eq('status','active').order('name');
+  const sSel = document.getElementById('bk-store');
+  sSel.innerHTML = `<option value="">Select store…</option>` +
+    (stores||[]).map(s => `<option value="${s.id}">${s.retailer ? s.retailer+' — '+s.branch : s.name}</option>`).join('');
+ const { data: products } = await db.from('products')
+  .select('id,name,brand,campaign_start,campaign_end')
+  .eq('status','active').order('name');
+const pSel = document.getElementById('bk-product');
+pSel.innerHTML = `<option value="">Select campaign…</option>` +
+  (products||[]).map(p => `<option value="${p.id}"
+    data-start="${p.campaign_start||''}"
+    data-end="${p.campaign_end||''}"
+  >${p.brand ? p.brand+' — ' : ''}${p.name}</option>`).join('');
+// Wire up date constraints when campaign changes
+pSel.onchange = () => onCampaignSelect();
+  document.getElementById('bk-mode-province').checked = true;
+  toggleBookingMode('province');
+  onProvinceChange();
+  _selectedPromoters = [];
+  OZ.openModal('modal-add-booking');
+}
+
+function toggleBookingMode(mode) {
+  document.getElementById('bk-province-section').style.display = mode === 'province' ? 'block' : 'none';
+  document.getElementById('bk-handpick-section').style.display = mode === 'handpick' ? 'block' : 'none';
+  if (mode === 'handpick') renderPromoterPicker();
+}
+
+async function onProvinceChange() {
+  const province = document.getElementById('bk-province').value;
+  const db = window.supabaseClient;
+  let q = db.from('promoter_profiles').select('user:user_id(id,is_active),region').eq('is_verified', true);
+  if (province) q = q.eq('region', province);
+  const { data } = await q;
+  const active = (data||[]).filter(p => p.user?.is_active);
+  document.getElementById('bk-province-count').textContent =
+    `${active.length} verified active promoter${active.length!==1?'s':''} in ${province||'all provinces'}`;
+}
+
+async function renderPromoterPicker() {
+  const db = window.supabaseClient;
+  const province = document.getElementById('bk-province')?.value || '';
+  let q = db.from('promoter_profiles').select('region,total_shifts,is_verified,user:user_id(id,first_name,last_name,is_active)');
+  const { data } = await q;
+  const list = (data||[]).filter(p => p.user?.is_active && (!province || p.region === province));
+  _selectedPromoters = [];
+  const wrap = document.getElementById('bk-promoter-picker');
+  if (!wrap) return;
+  wrap.innerHTML = list.length ? list.map(p => `
+    <label style="display:flex;align-items:center;gap:9px;padding:7px 10px;background:var(--oz-surface2);border:1px solid var(--oz-border);border-radius:var(--r);cursor:pointer">
+      <input type="checkbox" value="${p.user.id}" onchange="togglePromoterPick('${p.user.id}','${p.user.first_name} ${p.user.last_name}')">
+      <div>
+        <div style="font-weight:600;font-size:.84rem">${p.user.first_name} ${p.user.last_name}</div>
+        <div style="font-size:.72rem;color:var(--oz-muted)">${p.region||'—'} · ${p.total_shifts||0} shifts · ${p.is_verified?'✅ Verified':'Unverified'}</div>
+      </div>
+    </label>`).join('') :
+    `<div style="color:var(--oz-dim);font-size:.82rem;padding:.5rem">No active promoters found.</div>`;
+  document.getElementById('bk-pick-count').textContent = '0 selected';
+}
+
+function togglePromoterPick(id, name) {
+  if (_selectedPromoters.find(p => p.id === id)) {
+    _selectedPromoters = _selectedPromoters.filter(p => p.id !== id);
+  } else {
+    _selectedPromoters.push({ id, name });
+  }
+  document.getElementById('bk-pick-count').textContent = `${_selectedPromoters.length} selected`;
+}
+
+async function createJobOffer() {
+  const db       = window.supabaseClient;
+  const S        = window.SETTINGS;
+  const storeId  = document.getElementById('bk-store').value;
+  const productId= document.getElementById('bk-product').value;
+  const date     = document.getElementById('bk-date').value;
+  const slot     = document.getElementById('bk-shift').value;
+  const required = parseInt(document.getElementById('bk-required').value) || 1;
+  const notes    = document.getElementById('bk-notes').value.trim();
+  const mode     = document.querySelector('input[name="bk-mode"]:checked')?.value || 'province';
+  const province = document.getElementById('bk-province').value;
+
+  if (!storeId || !productId || !date) { OZ.toast('Please fill in store, campaign, and date'); return; }
+  if (date < new Date().toISOString().split('T')[0]) { OZ.toast('Shift date cannot be in the past'); return; }
+
+  let targets = [];
+  if (mode === 'handpick') {
+    if (!_selectedPromoters.length) { OZ.toast('Please select at least one promoter'); return; }
+    targets = _selectedPromoters;
+  } else {
+    let q = db.from('promoter_profiles').select('user:user_id(id,first_name,last_name,is_active),region').eq('is_verified', true);
+    if (province) q = q.eq('region', province);
+    const { data: pp } = await q;
+    targets = (pp||[]).filter(p => p.user?.is_active).map(p => ({ id: p.user.id, name: `${p.user.first_name} ${p.user.last_name}` }));
+    if (!targets.length) { OZ.toast(`No active promoters in ${province || 'any province'}`); return; }
+  }
+
+  OZ.toast('Posting offer…');
+
+  const inserts = targets.map(t => ({
+    promoter_id:        t.id,
+    store_id:           storeId,
+    product_id:         productId,
+    shift_date:         date,
+    shift_slot:         slot,
+    shift_hours:        S.shiftHours,
+    hourly_rate_zar:    S.hourlyRate,
+    status:             'pending',
+    notes_for_promoter: notes || null,
+    required_promoters: required,
+    province_target:    province || null,
+  }));
+
+  const { error } = await db.from('bookings').insert(inserts);
+  if (error) { OZ.toast('❌ Error: ' + error.message); return; }
+
+  OZ.closeModal('modal-add-booking');
+  OZ.toast(`📬 Job offer sent to ${targets.length} promoter${targets.length!==1?'s':''}!`);
+  await buildNav();
+  renderBookings();
+}
+
+async function cancelOffer(id) {
+  if (!confirm('Cancel this offer?')) return;
+  const { error } = await window.supabaseClient.from('bookings').update({ status: 'cancelled' }).eq('id', id);
+  if (error) OZ.toast('❌ ' + error.message);
+  else { OZ.toast('Offer cancelled'); renderBookings(); }
+}
+
+
+function onCampaignSelect() {
+  const pSel     = document.getElementById('bk-product');
+  const dateEl   = document.getElementById('bk-date');
+  const infoEl   = document.getElementById('bk-date-info');
+  const selected = pSel.options[pSel.selectedIndex];
+  const start    = selected?.dataset.start;
+  const end      = selected?.dataset.end;
+  const today    = new Date().toISOString().split('T')[0];
+
+  if (start && end) {
+    // Constrain to campaign window — but never allow past dates
+    dateEl.min   = start > today ? start : today;
+    dateEl.max   = end;
+    dateEl.value = '';
+    if (infoEl) infoEl.innerHTML = `<span style="color:var(--oz-accent);font-size:.78rem">📅 Campaign runs ${start} → ${end}. Pick any shift date within this window.</span>`;
+  } else if (start) {
+    dateEl.min   = start > today ? start : today;
+    dateEl.max   = '';
+    dateEl.value = '';
+    if (infoEl) infoEl.innerHTML = `<span style="color:var(--oz-accent);font-size:.78rem">📅 Campaign starts ${start}. No end date set.</span>`;
+  } else {
+    // No dates on campaign — fall back to today onwards
+    dateEl.min   = today;
+    dateEl.max   = '';
+    dateEl.value = '';
+    if (infoEl) infoEl.innerHTML = `<span style="color:var(--oz-dim);font-size:.78rem">⚠️ No campaign dates set — you can pick any future date.</span>`;
+  }
+}
+
+
+
+
+
+
 
 // ── ATTENDANCE ────────────────────────────────────────────────
 function renderAttendance() {
-  const S = window.SETTINGS;
-  const period = window.period_attendance || 'month';
-  const search = document.getElementById('att-search')?.value || '';
-  const statusF = document.getElementById('att-status')?.value || 'all';
-  let data = OZ.filterByPeriod(window.ATTENDANCE, 'date', period);
-  if (search) data = data.filter(a => a.promoter.toLowerCase().includes(search.toLowerCase()) || a.store.toLowerCase().includes(search.toLowerCase()));
-  if (statusF !== 'all') data = data.filter(a => a.status === statusF);
+  const S       = window.SETTINGS;
+  const search  = document.getElementById('att-search')?.value  || '';
+  const statusF = document.getElementById('att-status')?.value  || 'all';
+  const storeF  = document.getElementById('att-store')?.value   || 'all';
+  const period  = window.period_attendance || 'month';
+
+  // Build roll-call rows from ACTIVATIONS (past + today only)
+  const today = new Date(new Date().toDateString());
+  let acts = window.ACTIVATIONS.filter(a => {
+    const d = new Date(a.date);
+    return d <= today && a.bookingStatus === 'confirmed';
+  });
+  acts = OZ.filterByPeriod(acts, 'date', period);
+  if (storeF !== 'all') acts = acts.filter(a => a.store === storeF);
+
+  // Flatten into per-promoter rows for filtering/display
+  let rows = [];
+  acts.forEach(act => {
+    act.promoters.forEach(promoter => {
+      const scan   = act.scans.find(s => s.promoter === promoter);
+      const status = scan ? 'present' : 'absent';
+      rows.push({
+        promoter, status,
+        store:   act.store,
+        date:    act.date,
+        actId:   act.id,
+        product: act.product,
+        shift:   act.shift,
+        time:    scan?.time   || '—',
+        device:  scan?.device || '—',
+      });
+    });
+  });
+
+  if (search)            rows = rows.filter(r => r.promoter.toLowerCase().includes(search.toLowerCase()) || r.store.toLowerCase().includes(search.toLowerCase()));
+  if (statusF !== 'all') rows = rows.filter(r => r.status === statusF);
+
+  const presentCount = rows.filter(r => r.status === 'present').length;
+  const absentCount  = rows.filter(r => r.status === 'absent').length;
+  const rate         = rows.length ? Math.round((presentCount / rows.length) * 100) : 0;
 
   document.getElementById('page-attendance').innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>Attendance &amp; Check-ins</h1><p>GPS-verified check-in records</p></div></div>
+  <div class="page-header">
+    <div class="page-header-left"><h1>Attendance</h1><p>QR scan roll-call per activation</p></div>
+  </div>
+
+  <div class="stats-grid" style="margin-bottom:1rem">
+    <div class="stat-card" style="--accent-color:var(--oz-green)">
+      <div class="stat-label">Present</div>
+      <div class="stat-value">${presentCount}</div>
+      <div class="stat-sub">Scanned in</div>
+      <div class="stat-icon">✅</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--oz-red)">
+      <div class="stat-label">Absent</div>
+      <div class="stat-value">${absentCount}</div>
+      <div class="stat-sub">No QR scan</div>
+      <div class="stat-icon">❌</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent)">
+      <div class="stat-label">Attendance rate</div>
+      <div class="stat-value">${rate}%</div>
+      <div class="stat-sub">${rows.length} total slots</div>
+      <div class="stat-icon">📊</div>
+    </div>
+  </div>
+
   <div class="filter-bar">
     <input type="text" id="att-search" placeholder="🔍 Search promoter or store…" value="${search}" oninput="renderAttendance()">
+    <select id="att-store" onchange="renderAttendance()">
+      <option value="all"${storeF==='all'?' selected':''}>All Stores</option>
+      ${S.stores.map(s=>`<option value="${s.name}"${storeF===s.name?' selected':''}>${s.name}</option>`).join('')}
+    </select>
     <select id="att-status" onchange="renderAttendance()">
-      <option value="all"${statusF==='all'?' selected':''}>All Status</option>
-      <option value="complete"${statusF==='complete'?' selected':''}>Complete</option>
-      <option value="incomplete"${statusF==='incomplete'?' selected':''}>Incomplete</option>
+      <option value="all"${statusF==='all'?' selected':''}>All</option>
+      <option value="present"${statusF==='present'?' selected':''}>Present</option>
+      <option value="absent"${statusF==='absent'?' selected':''}>Absent</option>
     </select>
     ${OZ.periodTabsHtml('attendance','renderAttendance()')}
-    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} records</span>
   </div>
-  <div class="card" style="margin-bottom:1rem"><div class="table-wrap"><table><thead><tr><th>Promoter</th><th>Store</th><th>Date</th><th>Check-in</th><th>Check-out</th><th>GPS</th><th>Device</th><th>Photos</th><th>Status</th></tr></thead><tbody>
-  ${data.length ? data.map(a=>`<tr><td>${a.promoter}</td><td>${a.store}</td><td>${a.date}</td>
-    <td style="color:var(--oz-green)">${a.checkin}</td><td style="color:var(--oz-muted)">${a.checkout}</td>
-    <td><code style="font-size:.7rem;color:var(--oz-accent)">${a.gps}</code></td>
-    <td><code style="font-size:.7rem;color:var(--oz-dim)">${a.device}</code></td>
-    <td><span class="badge ${a.photos>=S.minPhotosPerShift?'badge-green':'badge-amber'}">${a.photos}/${S.minPhotosPerShift}</span></td>
-    <td><span class="badge ${a.status==='complete'?'badge-green':'badge-amber'}">${a.status}</span></td></tr>`).join('') : `<tr><td colspan="9" style="text-align:center;color:var(--oz-dim);padding:2rem">No records for this period</td></tr>`}
-  </tbody></table></div></div>
-  <div class="card"><div class="card-title">GPS Check-in Map</div><div class="map-placeholder"><span style="font-size:1.8rem">🗺️</span><span style="font-size:.87rem">GPS coordinates logged for all check-ins</span><span style="font-size:.73rem;color:var(--oz-dim)">Durban area · ${data.length} locations tracked</span></div></div>`;
+
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>Promoter</th><th>Store</th><th>Date</th><th>Shift</th>
+      <th>Product</th><th>Scan time</th><th>Device</th><th>Status</th>
+    </tr></thead>
+    <tbody>
+    ${rows.length ? rows.map(r => `<tr>
+      <td style="font-weight:600">${r.promoter}</td>
+      <td>${r.store}</td>
+      <td>${new Date(r.date).toLocaleDateString('en-ZA',{day:'numeric',month:'short',year:'numeric'})}</td>
+      <td style="font-size:.78rem;color:var(--oz-muted)">${r.shift}</td>
+      <td style="font-size:.78rem;color:var(--oz-muted)">${r.product}</td>
+      <td style="color:${r.time!=='—'?'var(--oz-green)':'var(--oz-dim)'}"><strong>${r.time}</strong></td>
+      <td><code style="font-size:.7rem;color:var(--oz-dim)">${r.device}</code></td>
+      <td><span class="badge ${r.status==='present'?'badge-green':'badge-red'}">${r.status==='present'?'✓ Present':'✗ Absent'}</span></td>
+    </tr>`).join('') : `
+    <tr><td colspan="8" style="text-align:center;color:var(--oz-dim);padding:2rem">No records for this period</td></tr>`}
+    </tbody>
+  </table></div></div>`;
 }
 
 // ── STOCK ─────────────────────────────────────────────────────
@@ -630,32 +1026,120 @@ function renderPhotos() {
 
 // ── STORE QR ──────────────────────────────────────────────────
 function renderStoreQR() {
-  const stores = window.SETTINGS.stores;
+  const storeF  = document.getElementById('qr-store')?.value  || 'all';
+  const statusF = document.getElementById('qr-status')?.value || 'upcoming';
+
+  // Pull confirmed bookings — these are the activations that need QR codes
+  let data = window.ACTIVATIONS.filter(a => a.bookingStatus === 'confirmed');
+  if (storeF  !== 'all')      data = data.filter(a => a.store === storeF);
+  if (statusF === 'upcoming') data = data.filter(a => new Date(a.date) >= new Date(new Date().toDateString()));
+  if (statusF === 'past')     data = data.filter(a => new Date(a.date) <  new Date(new Date().toDateString()));
+
+  const S = window.SETTINGS;
+
   document.getElementById('page-storeqr').innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>Store QR Codes</h1><p>Printable check-in codes for each store</p></div></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem">
-  ${stores.map((store,i)=>`<div class="card" style="text-align:center">
-    <div style="font-weight:600;font-size:.87rem;margin-bottom:.65rem">${store}</div>
-    <div style="display:flex;justify-content:center;margin-bottom:.65rem">
-      <div class="qr-container">
-        <svg width="90" height="90" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <rect width="100" height="100" fill="white"/>
-          <rect x="8" y="8" width="32" height="32" fill="none" stroke="#000" stroke-width="3"/>
-          <rect x="14" y="14" width="20" height="20" fill="#000"/>
-          <rect x="60" y="8" width="32" height="32" fill="none" stroke="#000" stroke-width="3"/>
-          <rect x="66" y="14" width="20" height="20" fill="#000"/>
-          <rect x="8" y="60" width="32" height="32" fill="none" stroke="#000" stroke-width="3"/>
-          <rect x="14" y="66" width="20" height="20" fill="#000"/>
-          <rect x="${44+(i%3)*4}" y="${44+(i%2)*4}" width="5" height="5" fill="#000"/>
-          <rect x="${52+(i%2)*4}" y="${44+(i%3)*4}" width="5" height="5" fill="#000"/>
-        </svg>
+  <div class="page-header">
+    <div class="page-header-left"><h1>Store QR Codes</h1><p>Generate and print shift check-in codes per activation</p></div>
+  </div>
+  <div class="filter-bar">
+    <select id="qr-store" onchange="renderStoreQR()">
+      <option value="all"${storeF==='all'?' selected':''}>All Stores</option>
+      ${S.stores.map(s=>`<option value="${s.name}"${storeF===s.name?' selected':''}>${s.name}</option>`).join('')}
+    </select>
+    <select id="qr-status" onchange="renderStoreQR()">
+      <option value="upcoming"${statusF==='upcoming'?' selected':''}>Upcoming</option>
+      <option value="past"${statusF==='past'?' selected':''}>Past</option>
+      <option value="all"${statusF==='all'?' selected':''}>All</option>
+    </select>
+    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} activation${data.length!==1?'s':''}</span>
+  </div>
+
+  ${data.length === 0 ? `
+  <div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">
+    <div style="font-size:2rem;margin-bottom:.75rem">📲</div>
+    <div style="font-weight:600">No activations found</div>
+    <div style="font-size:.82rem;margin-top:.35rem">Confirmed bookings will appear here</div>
+  </div>` : `
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+  ${data.map(act => {
+    const isPast    = new Date(act.date) < new Date(new Date().toDateString());
+    const scanCount = act.scans.length;
+    const total     = act.promoters.length;
+    const allIn     = scanCount === total;
+    const dateStr   = new Date(act.date).toLocaleDateString('en-ZA',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    return `
+    <div class="card" style="display:flex;flex-direction:column;gap:.75rem">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:.9rem">${act.store}</div>
+          <div style="font-size:.78rem;color:var(--oz-muted);margin-top:.15rem">📅 ${dateStr} &nbsp;·&nbsp; 🕐 ${act.shift}</div>
+          <div style="font-size:.78rem;color:var(--oz-muted);margin-top:.1rem">🛍 ${act.product}</div>
+        </div>
+        <span class="badge ${isPast?(allIn?'badge-green':'badge-red'):'badge-cyan'}" style="flex-shrink:0">
+          ${isPast?(allIn?'Complete':'Incomplete'):'Upcoming'}
+        </span>
       </div>
-    </div>
-    <div style="font-size:.7rem;color:var(--oz-muted);margin-bottom:.65rem">STR-${String(i+1).padStart(3,'0')}</div>
-    <button class="btn btn-sm btn-outline" style="width:100%" onclick="OZ.toast('Printed QR for ${store}')">🖨 Print</button>
-  </div>`).join('')}
-  </div>`;
+
+      <!-- Promoters assigned -->
+      <div style="font-size:.75rem;color:var(--oz-dim);margin-bottom:.1rem">Assigned promoters</div>
+      <div style="display:flex;flex-direction:column;gap:.3rem">
+        ${act.promoters.map(p => {
+          const scan = act.scans.find(s => s.promoter === p);
+          return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:.8rem">
+            <span>${p}</span>
+            ${scan
+              ? `<span class="badge badge-green">✓ ${scan.time}</span>`
+              : isPast
+                ? `<span class="badge badge-red">Absent</span>`
+                : `<span class="badge badge-gray">Pending</span>`}
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- QR Code canvas -->
+      <div style="display:flex;justify-content:center;background:#fff;border-radius:var(--r);padding:.75rem" id="qr-wrap-${act.id}">
+        <canvas id="qr-${act.id}" style="display:block"></canvas>
+      </div>
+      <div style="font-size:.68rem;color:var(--oz-dim);text-align:center;font-family:monospace;letter-spacing:.03em">${act.qrToken}</div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:.5rem;margin-top:auto">
+        <button class="btn btn-sm btn-outline" style="flex:1" onclick="downloadQR('${act.id}','${act.store} ${act.date}')">⬇ Download</button>
+        <button class="btn btn-sm btn-accent"  style="flex:1" onclick="printQR('${act.id}','${act.store}','${dateStr}','${act.shift}','${act.product}')">🖨 Print</button>
+      </div>
+    </div>`;
+  }).join('')}
+  </div>`}
+  `;
+
+  // Render real QR codes after HTML is in DOM
+  // Uses qrcode.js loaded in the <head> from CDN
+  if (typeof QRCode !== 'undefined') {
+    data.forEach(act => {
+      const canvas = document.getElementById(`qr-${act.id}`);
+      if (!canvas) return;
+      QRCode.toCanvas(canvas, act.qrToken, {
+        width: 160,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' }
+      }, err => { if (err) console.warn('QR error:', err); });
+    });
+  }
 }
+
+function downloadQR(actId, label) {
+  const canvas = document.getElementById(`qr-${actId}`);
+  if (!canvas) return;
+  const link = document.createElement('a');
+  link.download = `OzoneQR-${label.replace(/\s/g,'-')}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  OZ.toast('QR downloaded');
+}
+
 
 // ── INVOICES ──────────────────────────────────────────────────
 function renderInvoices() {
@@ -830,59 +1314,61 @@ function renderPromoters() {
   </tbody></table></div></div>`;
 }
 
-// ── APPLICATIONS — Supabase wired ─────────────────────────────
+// ── APPLICATIONS ──────────────────────────────────────────────
 let currentDeclineId = null;
 let currentApplicationFilter = 'pending';
-let _appData = [];  // in-memory cache from DB
+
+// ── APPLICATIONS — Supabase connected ────────────────────────
 
 async function renderApplications() {
-  const page = document.getElementById('page-applications');
+  const el = document.getElementById('page-applications');
   const search = document.getElementById('app-search')?.value || '';
 
   // Show skeleton while loading
-  page.innerHTML = `<div class="page-header"><div class="page-header-left"><h1>Applications</h1><p>Review, approve or decline promoter applications</p></div></div><div class="card" style="text-align:center;padding:2rem;color:var(--oz-muted)">⏳ Loading applications…</div>`;
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading applications…</div>`;
 
   const db = window.supabaseClient;
-  const { data, error } = await db
-    .from('applications')
-    .select('id, ref_number, first_name, last_name, email, phone, id_number, region, experience_band, motivation, status, applied_at, decline_reason, decline_notes')
-    .order('applied_at', { ascending: false });
+
+  // Fetch all applications from DB
+  let query = db.from('applications').select('*').order('applied_at', { ascending: false });
+  if (currentApplicationFilter !== 'all') query = query.eq('status', currentApplicationFilter);
+  const { data: allApps, error } = await query;
 
   if (error) {
-    page.innerHTML = `<div class="card" style="text-align:center;padding:2rem;color:var(--oz-red)">❌ Failed to load applications: ${error.message}</div>`;
+    el.innerHTML = `<div class="card" style="color:var(--oz-red);padding:2rem">⚠ Failed to load applications: ${error.message}</div>`;
     return;
   }
 
-  _appData = data || [];
-
-  // Filter
-  let filtered = currentApplicationFilter === 'all' ? _appData : _appData.filter(a => a.status === currentApplicationFilter);
-  if (search) filtered = filtered.filter(a => (a.first_name + ' ' + a.last_name).toLowerCase().includes(search.toLowerCase()));
-
+  // Count for badges (fetch all statuses)
+  const { data: allForCount } = await db.from('applications').select('status');
   const counts = {
-    pending:  _appData.filter(a => a.status === 'pending').length,
-    approved: _appData.filter(a => a.status === 'approved').length,
-    declined: _appData.filter(a => a.status === 'declined').length,
+    pending:  (allForCount||[]).filter(a=>a.status==='pending').length,
+    approved: (allForCount||[]).filter(a=>a.status==='approved').length,
+    declined: (allForCount||[]).filter(a=>a.status==='declined').length,
   };
 
-  // Update nav badge
-  buildNav();
+  // Client-side search filter
+  let data = allApps || [];
+  if (search) data = data.filter(a=>(a.first_name+' '+a.last_name).toLowerCase().includes(search.toLowerCase()));
+
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-ZA',{year:'numeric',month:'short',day:'numeric'}) : '—';
 
   let html = `
   <div class="page-header">
     <div class="page-header-left"><h1>Applications</h1><p>Review, approve or decline promoter applications</p></div>
     <div class="page-header-actions">
       <select onchange="currentApplicationFilter=this.value;renderApplications()" style="background:var(--oz-surface2);border:1px solid var(--oz-border2);color:var(--oz-text);padding:7px 11px;border-radius:var(--r);font-family:var(--font-b);font-size:.82rem;outline:none">
-        <option value="pending"${currentApplicationFilter==='pending'?' selected':''}>Pending</option>
-        <option value="approved"${currentApplicationFilter==='approved'?' selected':''}>Approved</option>
-        <option value="declined"${currentApplicationFilter==='declined'?' selected':''}>Declined</option>
+        <option value="pending"${currentApplicationFilter==='pending'?' selected':''}>Pending (${counts.pending})</option>
+        <option value="approved"${currentApplicationFilter==='approved'?' selected':''}>Approved (${counts.approved})</option>
+        <option value="declined"${currentApplicationFilter==='declined'?' selected':''}>Declined (${counts.declined})</option>
         <option value="all"${currentApplicationFilter==='all'?' selected':''}>All</option>
       </select>
     </div>
   </div>
   <div class="filter-bar">
     <input type="text" id="app-search" placeholder="🔍 Search applicant name…" value="${search}" oninput="renderApplications()">
-    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${filtered.length} application${filtered.length!==1?'s':''}</span>
+    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} application${data.length!==1?'s':''}</span>
   </div>
   <div class="stats-grid" style="margin-bottom:1rem">
     <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Pending</div><div class="stat-value">${counts.pending}</div><div class="stat-sub">Awaiting review</div></div>
@@ -890,122 +1376,380 @@ async function renderApplications() {
     <div class="stat-card" style="--accent-color:var(--oz-red)"><div class="stat-label">Declined</div><div class="stat-value">${counts.declined}</div><div class="stat-sub">Not proceeding</div></div>
   </div>`;
 
-  if (!filtered.length) {
-    html += `<div class="card" style="text-align:center;padding:3rem"><div style="font-size:2rem;margin-bottom:.75rem">📭</div><div style="font-weight:600">No ${currentApplicationFilter} applications</div></div>`;
+  if (!data.length) {
+    html += `<div class="card" style="text-align:center;padding:3rem"><div style="font-size:2rem;margin-bottom:.75rem">📭</div>
+      <div style="font-weight:600">No ${currentApplicationFilter} applications</div></div>`;
   } else {
-    filtered.forEach(app => {
-      const appliedDate = app.applied_at ? new Date(app.applied_at).toLocaleDateString('en-ZA') : '—';
+    data.forEach(app => {
       const statusBadge = app.status==='approved'
         ? '<span class="badge badge-green">✅ Approved</span>'
         : app.status==='declined'
-          ? '<span class="badge badge-red">❌ Declined</span>'
-          : '<span class="badge badge-amber">⏳ Pending</span>';
+        ? '<span class="badge badge-red">❌ Declined</span>'
+        : '<span class="badge badge-amber">⏳ Pending</span>';
+
       let actions = '';
       if (app.status==='pending') {
-        actions = `<button class="btn btn-success" onclick="approveApp('${app.id}','${app.first_name}','${app.last_name}')">✅ Approve</button><button class="btn btn-danger" onclick="openDecline('${app.id}')">❌ Decline</button>`;
+        actions = `
+          <button class="btn btn-success" onclick="approveApp('${app.id}','${app.first_name}','${app.last_name}','${app.email}','${app.phone||''}','${app.id_number||''}','${app.region||''}','${app.experience_band||''}')">✅ Approve &amp; Create Login</button>
+          <button class="btn btn-danger" onclick="openDecline('${app.id}')">❌ Decline</button>`;
       } else if (app.status==='approved') {
-        actions = `<button class="btn btn-warning btn-sm" onclick="updateAppStatus('${app.id}','pending','Approval revoked.')">↩ Revoke</button>`;
+        actions = `<button class="btn btn-warning btn-sm" onclick="revokeApp('${app.id}')">Revoke Approval</button>`;
       } else {
-        actions = `<button class="btn btn-ghost btn-sm" onclick="updateAppStatus('${app.id}','pending','Moved back to pending.')">↩ Reconsider</button>`;
+        actions = `<button class="btn btn-ghost btn-sm" onclick="reconsiderApp('${app.id}')">↩ Reconsider</button>`;
       }
+
       html += `<div class="applicant-card">
-        <div class="ac-header"><div><div class="ac-name">${app.first_name} ${app.last_name}</div><div class="ac-meta">📧 ${app.email} · 📱 ${app.phone||'—'} · Applied: ${appliedDate}</div></div>${statusBadge}</div>
+        <div class="ac-header">
+          <div>
+            <div class="ac-name">${app.first_name} ${app.last_name}</div>
+            <div class="ac-meta">📧 ${app.email} · 📱 ${app.phone||'—'} · Applied: ${fmtDate(app.applied_at)}</div>
+          </div>
+          ${statusBadge}
+        </div>
         <div class="ac-details">
           <div><div class="adi-label">Region</div><div class="adi-value">📍 ${app.region||'—'}</div></div>
           <div><div class="adi-label">Experience</div><div class="adi-value">💼 ${app.experience_band||'—'}</div></div>
           <div><div class="adi-label">SA ID</div><div class="adi-value">${app.id_number||'—'}</div></div>
           <div><div class="adi-label">Ref</div><div class="adi-value"><code style="color:var(--oz-accent);font-size:.75rem">${app.ref_number}</code></div></div>
         </div>
-        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-dim);font-weight:600;margin-bottom:5px">Motivation</div>
-        <div class="ac-motivation">${app.motivation||'—'}</div>
-        ${app.status==='declined' && app.decline_reason ? `<div style="margin-top:.5rem;font-size:.78rem;color:var(--oz-red)">Decline reason: ${app.decline_reason}</div>` : ''}
+        ${app.motivation ? `<div style="font-size:.66rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-dim);font-weight:600;margin-bottom:5px">Motivation</div>
+        <div class="ac-motivation">${app.motivation}</div>` : ''}
         <div class="ac-actions">${actions}</div>
       </div>`;
     });
   }
-  page.innerHTML = html;
+
+  el.innerHTML = html;
 }
 
-async function approveApp(id, firstName, lastName) {
+// ── APPROVE: creates auth user + public.users row + promoter_profile ──
+async function approveApp(appId, firstName, lastName, email, phone, idNumber, region, experienceBand) {
   const db = window.supabaseClient;
-  const { error } = await db
-    .from('applications')
-    .update({ status: 'approved', reviewed_by: window.OZ_USER?.id || null, reviewed_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { OZ.toast('❌ Error: ' + error.message); return; }
-  OZ.toast('✅ ' + firstName + ' ' + lastName + ' approved!');
-  renderApplications();
-}
 
-async function updateAppStatus(id, status, toastMsg) {
-  const db = window.supabaseClient;
-  const { error } = await db
-    .from('applications')
-    .update({ status, reviewed_by: window.OZ_USER?.id || null, reviewed_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { OZ.toast('❌ Error: ' + error.message); return; }
-  OZ.toast(toastMsg);
-  renderApplications();
+  if (!confirm(`Approve ${firstName} ${lastName}?\n\nThis will:\n• Create their login account\n• Send them an email to set their own password\n\nEmail: ${email}`)) return;
+
+  OZ.toast('Creating account…');
+
+  try {
+    // 1. Create Supabase Auth user with a random throwaway password
+    //    The promoter will never use this — they'll set their own via the email link
+    const throwawayPassword = 'Tmp_' + Math.random().toString(36).slice(2, 10) + '_Oz9!';
+
+    const { data: signUpData, error: signUpErr } = await db.auth.signUp({
+      email,
+      password: throwawayPassword,
+      options: { data: { first_name: firstName, last_name: lastName } }
+    });
+    if (signUpErr) throw new Error('Auth creation failed: ' + signUpErr.message);
+
+    const authUserId = signUpData?.user?.id;
+    if (!authUserId) throw new Error('Could not get auth user ID — the email may already have an account.');
+
+    // 2. Check if a public.users row already exists
+    const { data: existingUser } = await db.from('users').select('id').eq('email', email).maybeSingle();
+
+    let publicUserId;
+    if (existingUser) {
+      // Link auth ID to existing row and activate
+      const { error: updErr } = await db.from('users').update({
+        supabase_auth_id: authUserId,
+        role: 'promoter',
+        is_active: true,
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone || null,
+      }).eq('email', email);
+      if (updErr) throw new Error('Failed to update user record: ' + updErr.message);
+      publicUserId = existingUser.id;
+    } else {
+      // Create a new public.users row
+      const { data: newUser, error: insErr } = await db.from('users').insert({
+        supabase_auth_id: authUserId,
+        email,
+        password: throwawayPassword,
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone || null,
+        role: 'promoter',
+        is_active: true,
+      }).select('id').single();
+      if (insErr) throw new Error('Failed to create user record: ' + insErr.message);
+      publicUserId = newUser.id;
+    }
+
+    // 3. Create or update promoter_profile
+    const { error: ppErr } = await db.from('promoter_profiles').upsert({
+      user_id: publicUserId,
+      id_number: idNumber || null,
+      region: region || null,
+      experience_band: experienceBand || null,
+      is_verified: true,
+      onboarded_at: new Date().toISOString().split('T')[0],
+      total_shifts: 0,
+    }, { onConflict: 'user_id' });
+    if (ppErr) console.warn('Promoter profile upsert warning:', ppErr.message);
+
+    // 4. Mark application as approved and link the new user
+    const { error: appErr } = await db.from('applications').update({
+      status: 'approved',
+      reviewed_at: new Date().toISOString(),
+      created_user_id: publicUserId,
+    }).eq('id', appId);
+    if (appErr) throw new Error('Failed to update application: ' + appErr.message);
+
+    // 5. Send Supabase password-reset email
+    //    Promoter receives: "Set your password" link → clicks it → sets own password → logs in
+    const { error: resetErr } = await db.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/login.html',
+    });
+
+    if (resetErr) {
+      console.warn('Password reset email warning:', resetErr.message);
+      OZ.toast(`✅ ${firstName} approved! Account created — but email failed. Share login details manually.`);
+    } else {
+      OZ.toast(`✅ ${firstName} ${lastName} approved! Password setup email sent to ${email}.`);
+    }
+
+    await buildNav();
+    renderApplications();
+
+  } catch (err) {
+    console.error('approveApp error:', err);
+    OZ.toast('❌ ' + err.message);
+  }
 }
 
 function openDecline(id) { currentDeclineId = id; OZ.openModal('modal-decline'); }
 
 async function confirmDecline() {
-  const reason = document.getElementById('decline-reason').value;
-  const notes  = document.getElementById('decline-notes').value.trim();
+  if (!currentDeclineId) return;
   const db = window.supabaseClient;
-  const { error } = await db
-    .from('applications')
-    .update({
-      status:        'declined',
-      decline_reason: reason,
-      decline_notes:  notes || null,
-      reviewed_by:   window.OZ_USER?.id || null,
-      reviewed_at:   new Date().toISOString(),
-    })
-    .eq('id', currentDeclineId);
+  const reason  = document.getElementById('decline-reason')?.value || '';
+  const notes   = document.getElementById('decline-notes')?.value  || '';
+
+  const { error } = await db.from('applications').update({
+    status:         'declined',
+    decline_reason: reason,
+    decline_notes:  notes || null,
+    reviewed_at:    new Date().toISOString(),
+  }).eq('id', currentDeclineId);
+
   if (error) { OZ.toast('❌ Error: ' + error.message); return; }
+
   OZ.closeModal('modal-decline');
   currentDeclineId = null;
   OZ.toast('Application declined.');
+  await buildNav();
   renderApplications();
 }
 
+async function revokeApp(id) {
+  if (!confirm('Revoke this approval? The promoter will no longer be able to log in.')) return;
+  const db = window.supabaseClient;
+
+  // Get the application to find the linked user
+  const { data: app } = await db.from('applications').select('created_user_id, first_name, last_name').eq('id', id).single();
+
+  // Deactivate the user account
+  if (app?.created_user_id) {
+    await db.from('users').update({ is_active: false }).eq('id', app.created_user_id);
+  }
+
+  const { error } = await db.from('applications').update({
+    status: 'pending',
+    reviewed_at: null,
+  }).eq('id', id);
+
+  if (error) { OZ.toast('❌ Error: ' + error.message); return; }
+  OZ.toast('Approval revoked.');
+  await buildNav();
+  renderApplications();
+}
+
+async function reconsiderApp(id) {
+  const db = window.supabaseClient;
+  const { error } = await db.from('applications').update({ status: 'pending', reviewed_at: null }).eq('id', id);
+  if (error) { OZ.toast('❌ Error: ' + error.message); return; }
+  OZ.toast('Moved back to pending.');
+  await buildNav();
+  renderApplications();
+}
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 
 // ── PRODUCTS ──────────────────────────────────────────────────
-function renderProducts() {
-  document.getElementById('page-products').innerHTML = `
+// ── PRODUCTS — Supabase wired + delete ────────────────────────
+let _deleteCampaignId = null;
+
+async function renderProducts() {
+  const el = document.getElementById('page-products');
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading campaigns…</div>`;
+
+  const db = window.supabaseClient;
+  const { data, error } = await db.from('products')
+  .select('*')
+  .not('status', 'eq', 'discontinued')
+  .order('name');
+  if (error) { el.innerHTML = `<div class="card" style="color:var(--oz-red);padding:2rem">⚠ ${error.message}</div>`; return; }
+
+  // Also load stores for the job offer modal (keeps them in sync with Settings)
+  const { data: stores } = await db.from('stores').select('id,name,retailer,branch').eq('status','active').order('name');
+  window._cachedStores = stores || [];
+
+  const products = data || [];
+
+  el.innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Products &amp; Campaigns</h1><p>Manage promoted products — add more as your catalogue grows</p></div>
-    <div class="page-header-actions"><button class="btn btn-accent" onclick="OZ.openModal('modal-add-product')">+ Add Product</button></div>
+    <div class="page-header-left"><h1>Campaigns &amp; Products</h1><p>Manage promoted brands and activation campaigns</p></div>
+    <div class="page-header-actions"><button class="btn btn-accent" onclick="openAddCampaignModal()">+ Add Campaign</button></div>
   </div>
   <div style="background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.12);border-radius:var(--r);padding:12px 15px;margin-bottom:1.2rem;font-size:.82rem;color:var(--oz-muted)">
-    <strong style="color:var(--oz-text)">💡 Tip:</strong> Products added here automatically appear when creating bookings.
+    <strong style="color:var(--oz-text)">💡</strong> Campaigns added here appear immediately in the Job Offer form. Stores are pulled live from Settings.
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:1rem">
-  ${window.PRODUCTS.map(p=>`<div class="card">
-    <div class="pc-header"><div><div class="pc-name">${p.name}</div><div class="pc-sku">SKU: ${p.sku} · ${p.category}</div></div><span class="badge ${p.status==='active'?'badge-green':'badge-gray'}">${p.status}</span></div>
-    <div class="pc-body">${p.desc}</div>
-    <div class="pc-tags"><span class="badge badge-cyan">📦 Active</span><span style="font-size:.72rem;color:var(--oz-dim)">${p.barcode}</span></div>
-    <div style="display:flex;gap:7px;margin-top:.7rem">
-      <button class="btn btn-sm btn-ghost" onclick="OZ.toast('Editing ${p.name}')">Edit</button>
-      <button class="btn btn-sm btn-danger" onclick="OZ.toast('Product deactivated')">Deactivate</button>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:1rem">
+  ${products.map(p => `
+  <div class="card" style="border-top:3px solid ${p.status==='active'?'var(--oz-accent)':'var(--oz-dim)'}">
+    <div class="pc-header">
+      <div>
+        ${p.brand ? `<div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-accent);font-weight:700;margin-bottom:2px">${p.brand}</div>` : ''}
+        <div class="pc-name">${p.name}</div>
+        <div style="font-size:.74rem;color:var(--oz-muted);margin-top:1px">${p.category}${p.objective ? ' · ' + p.objective : ''}</div>
+      </div>
+      <span class="badge ${p.status==='active'?'badge-green':p.status==='upcoming'?'badge-amber':'badge-gray'}">${p.status}</span>
+    </div>
+    <div class="pc-body">${p.description || 'No description provided.'}</div>
+    ${p.talking_points ? `<div style="background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.1);border-radius:var(--r);padding:8px 10px;margin-bottom:.7rem"><div style="font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-accent);font-weight:700;margin-bottom:3px">Talking Points</div><div style="font-size:.77rem;color:var(--oz-muted);white-space:pre-line">${p.talking_points}</div></div>` : ''}
+    ${p.compliance_notes ? `<div style="background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.12);border-radius:var(--r);padding:7px 10px;margin-bottom:.7rem"><div style="font-size:.62rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-red);font-weight:700;margin-bottom:2px">⚖️ Compliance</div><div style="font-size:.73rem;color:var(--oz-muted)">${p.compliance_notes}</div></div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:.7rem">
+      ${p.retail_price ? `<span class="badge badge-green">R${p.retail_price}</span>` : ''}
+      ${p.min_age ? `<span class="badge badge-red">🔞 ${p.min_age}+</span>` : ''}
+      ${p.sampling_allowed ? `<span class="badge badge-amber">Sampling ✓</span>` : ''}
+      ${p.campaign_start ? `<span class="badge badge-gray" style="font-size:.64rem">${p.campaign_start}${p.campaign_end?' → '+p.campaign_end:''}</span>` : ''}
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-sm btn-ghost" onclick="openEditCampaignModal('${p.id}')">✏️ Edit</button>
+      <button class="btn btn-sm btn-danger" onclick="toggleCampaignStatus('${p.id}','${p.status}')">${p.status==='active'?'Deactivate':'Activate'}</button>
+      <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:var(--oz-red);border:1px solid rgba(239,68,68,.25)" onclick="openDeleteCampaign('${p.id}','${p.name.replace(/'/g,"\\'")}')">🗑 Delete</button>
     </div>
   </div>`).join('')}
+  ${!products.length ? `<div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--oz-dim)"><div style="font-size:2rem;margin-bottom:.75rem">🍾</div><div style="font-weight:600">No campaigns yet</div><div style="font-size:.84rem;margin-top:.4rem">Add your first campaign to start posting job offers.</div></div>` : ''}
   </div>
-  <div style="margin-top:1rem;background:var(--oz-card);border:1px dashed var(--oz-border2);border-radius:var(--r-lg);padding:2rem;text-align:center">
-    <div style="font-size:2rem;margin-bottom:.5rem">📦</div>
-    <div style="font-weight:600;margin-bottom:4px">Ready to add your next product?</div>
-    <div style="font-size:.84rem;color:var(--oz-muted);margin-bottom:1rem">New products appear in booking forms immediately after adding.</div>
-    <button class="btn btn-accent" onclick="OZ.openModal('modal-add-product')">+ Add Product</button>
+
+  <!-- Delete confirmation modal -->
+  <div class="modal-overlay" id="modal-delete-campaign" onclick="if(event.target===this)closeDeleteCampaign()">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header"><div class="modal-title" style="color:var(--oz-red)">🗑 Delete Campaign</div></div>
+      <div class="modal-body">
+        <div style="text-align:center;padding:1rem 0">
+          <div style="font-size:2.5rem;margin-bottom:.75rem">⚠️</div>
+          <div style="font-weight:700;font-size:1rem;margin-bottom:.5rem">Delete "<span id="delete-campaign-name"></span>"?</div>
+         <div style="font-size:.84rem;color:var(--oz-muted);line-height:1.6">If this campaign has no bookings attached, it will be permanently deleted.<br><br>If it has existing bookings, it will be marked as <strong style="color:var(--oz-accent)">discontinued</strong> instead — preserving your booking history.</div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeDeleteCampaign()">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmDeleteCampaign()">Yes, Delete Campaign</button>
+      </div>
+    </div>
   </div>`;
 }
-function addProduct() {
-  const name = document.getElementById('np-name').value.trim();
-  if (!name) { OZ.toast('Product name required'); return; }
-  window.PRODUCTS.push({ id:'P'+String(window.PRODUCTS.length+1).padStart(3,'0'), name, sku:document.getElementById('np-sku').value||'OZ-NEW', category:document.getElementById('np-cat').value, desc:document.getElementById('np-desc').value, barcode:document.getElementById('np-barcode').value||'—', status:document.getElementById('np-status').value });
-  OZ.closeModal('modal-add-product'); renderProducts(); OZ.toast('✅ '+name+' added!');
+
+function openDeleteCampaign(id, name) {
+  _deleteCampaignId = id;
+  document.getElementById('delete-campaign-name').textContent = name;
+  document.getElementById('modal-delete-campaign').classList.add('open');
+}
+function closeDeleteCampaign() {
+  _deleteCampaignId = null;
+  document.getElementById('modal-delete-campaign').classList.remove('open');
+}
+async function confirmDeleteCampaign() {
+  if (!_deleteCampaignId) return;
+  const db = window.supabaseClient;
+  const { error } = await db
+    .from('products')
+    .update({ status: 'discontinued' })
+    .eq('id', _deleteCampaignId);
+  if (error) { OZ.toast('❌ ' + error.message); return; }
+  closeDeleteCampaign();
+  OZ.toast('🗑 Campaign removed.');
+  renderProducts();
+}
+
+function openAddCampaignModal() {
+  document.getElementById('nc-edit-id').value = '';
+  ['nc-name','nc-brand','nc-desc','nc-talking','nc-audience','nc-compliance','nc-price'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('nc-minage').value = '18';
+  document.getElementById('nc-start').value  = '';
+  document.getElementById('nc-end').value    = '';
+  document.getElementById('nc-sampling').checked = true;
+  document.getElementById('nc-status').value = 'active';
+  document.getElementById('nc-cat').value    = 'Spirits';
+  document.getElementById('campaign-modal-title').textContent = '🍾 Add Campaign / Product';
+  OZ.openModal('modal-add-product');
+}
+
+async function openEditCampaignModal(id) {
+  const { data: p } = await window.supabaseClient.from('products').select('*').eq('id', id).single();
+  if (!p) return;
+  document.getElementById('nc-edit-id').value   = id;
+  document.getElementById('nc-name').value       = p.name          || '';
+  document.getElementById('nc-brand').value      = p.brand         || '';
+  document.getElementById('nc-cat').value        = p.category      || 'Spirits';
+  document.getElementById('nc-objective').value  = p.objective     || '';
+  document.getElementById('nc-desc').value       = p.description   || '';
+  document.getElementById('nc-talking').value    = p.talking_points|| '';
+  document.getElementById('nc-audience').value   = p.target_audience||'';
+  document.getElementById('nc-price').value      = p.retail_price  || '';
+  document.getElementById('nc-start').value      = p.campaign_start|| '';
+  document.getElementById('nc-end').value        = p.campaign_end  || '';
+  document.getElementById('nc-minage').value     = p.min_age       || 18;
+  document.getElementById('nc-sampling').checked = p.sampling_allowed !== false;
+  document.getElementById('nc-compliance').value = p.compliance_notes || '';
+  document.getElementById('nc-status').value     = p.status        || 'active';
+  document.getElementById('campaign-modal-title').textContent = '✏️ Edit Campaign';
+  OZ.openModal('modal-add-product');
+}
+
+async function saveCampaign() {
+  const db     = window.supabaseClient;
+  const editId = document.getElementById('nc-edit-id').value.trim();
+  const name   = document.getElementById('nc-name').value.trim();
+  if (!name) { OZ.toast('Campaign name is required'); return; }
+  const payload = {
+    name,
+    brand:            document.getElementById('nc-brand').value.trim()      || null,
+    category:         document.getElementById('nc-cat').value,
+    objective:        document.getElementById('nc-objective').value.trim()  || null,
+    description:      document.getElementById('nc-desc').value.trim()       || null,
+    talking_points:   document.getElementById('nc-talking').value.trim()    || null,
+    target_audience:  document.getElementById('nc-audience').value.trim()   || null,
+    retail_price:     parseFloat(document.getElementById('nc-price').value) || null,
+    campaign_start:   document.getElementById('nc-start').value             || null,
+    campaign_end:     document.getElementById('nc-end').value               || null,
+    min_age:          parseInt(document.getElementById('nc-minage').value)  || 18,
+    sampling_allowed: document.getElementById('nc-sampling').checked,
+    compliance_notes: document.getElementById('nc-compliance').value.trim() || null,
+    status:           document.getElementById('nc-status').value,
+  };
+  let error;
+  if (editId) {
+    ({ error } = await db.from('products').update(payload).eq('id', editId));
+  } else {
+    payload.sku = 'OZ-' + Date.now().toString(36).toUpperCase().slice(-6);
+    ({ error } = await db.from('products').insert(payload));
+  }
+  if (error) { OZ.toast('❌ ' + error.message); return; }
+  OZ.closeModal('modal-add-product');
+  renderProducts();
+  OZ.toast(editId ? '✅ Campaign updated!' : '✅ Campaign added!');
+}
+
+async function toggleCampaignStatus(id, current) {
+  const newStatus = current === 'active' ? 'paused' : 'active';
+  if (!confirm(`${newStatus === 'paused' ? 'Deactivate' : 'Activate'} this campaign?`)) return;
+  const { error } = await window.supabaseClient.from('products').update({ status: newStatus }).eq('id', id);
+  if (error) OZ.toast('❌ ' + error.message);
+  else { OZ.toast('Campaign status updated'); renderProducts(); }
 }
 
 // ── BUSINESS INTELLIGENCE ─────────────────────────────────────
@@ -1078,6 +1822,8 @@ function renderBI() {
   }, 80);
 }
 
+// ── SETTINGS — Supabase connected ─────────────────────────────
+
 // ── SETTINGS — Supabase wired ────────────────────────────────
 async function renderSettings() {
   const page = document.getElementById('page-settings');
@@ -1129,6 +1875,13 @@ async function renderSettings() {
 
   const S = window.SETTINGS;
   const sym = S.currencySymbol;
+  const hourlyRate = Number(S.hourlyRate) || 0;
+  const shiftHours = Number(S.shiftHours) || 8;
+  const paymentTermsDays = Number(S.paymentTermsDays) || 5;
+  const minPhotosPerShift = Number(S.minPhotosPerShift) || 10;
+  const lateCheckinThresholdMins = Number(S.lateCheckinThresholdMins) || 30;
+  const checkinRadiusMeters = Number(S.checkinRadiusMeters) || 200;
+  const accentColor = String(S.accentColor || '#00d4ff');
 
   page.innerHTML = `
   <div class="page-header"><div class="page-header-left"><h1>Settings</h1><p>System-wide configuration — saved changes apply immediately</p></div></div>
@@ -1136,20 +1889,20 @@ async function renderSettings() {
 
     <div class="settings-card">
       <div class="settings-card-title">💰 Pay &amp; Rates</div>
-      <div class="setting-row"><div><div class="sr-label">Hourly Rate (${sym})</div><div class="sr-sub">Base rate for all promoters</div></div><div class="sr-control"><input class="settings-input-inline" id="st-hourly" type="number" value="${S.hourlyRate}" min="0"></div></div>
-      <div class="setting-row"><div><div class="sr-label">Standard Shift Hours</div></div><div class="sr-control"><input class="settings-input-inline" id="st-shifthrs" type="number" value="${S.shiftHours}" min="1" max="12"></div></div>
-      <div class="setting-row"><div><div class="sr-label">Payment Terms (Days)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-paydays" type="number" value="${S.paymentTermsDays}" min="1"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Hourly Rate (${sym})</div><div class="sr-sub">Base rate for all promoters</div></div><div class="sr-control"><input class="settings-input-inline" id="st-hourly" type="number" value="${hourlyRate}" min="0"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Standard Shift Hours</div></div><div class="sr-control"><input class="settings-input-inline" id="st-shifthrs" type="number" value="${shiftHours}" min="1" max="12"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Payment Terms (Days)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-paydays" type="number" value="${paymentTermsDays}" min="1"></div></div>
       <div style="margin-top:1rem;padding:10px 13px;background:rgba(16,185,129,.06);border:1px solid rgba(16,185,129,.16);border-radius:var(--r);font-size:.82rem;color:var(--oz-muted)" id="shift-pay-preview">
-        Shift pay: <strong style="color:var(--oz-green)">${sym}${S.hourlyRate*S.shiftHours}</strong> (${sym}${S.hourlyRate} × ${S.shiftHours}hrs)
+        Shift pay: <strong style="color:var(--oz-green)">${sym}${hourlyRate*shiftHours}</strong> (${sym}${hourlyRate} × ${shiftHours}hrs)
       </div>
       <button class="btn btn-accent" style="margin-top:1rem;width:100%" onclick="savePaySettings()">💾 Save Pay Settings</button>
     </div>
 
     <div class="settings-card">
       <div class="settings-card-title">⚡ Shift Rules</div>
-      <div class="setting-row"><div><div class="sr-label">Min Photos Per Shift</div></div><div class="sr-control"><input class="settings-input-inline" id="st-minphotos" type="number" value="${S.minPhotosPerShift}" min="1"></div></div>
-      <div class="setting-row"><div><div class="sr-label">Late Check-in Threshold (min)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-latein" type="number" value="${S.lateCheckinThresholdMins}" min="1"></div></div>
-      <div class="setting-row"><div><div class="sr-label">Check-in GPS Radius (m)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-gpsrad" type="number" value="${S.checkinRadiusMeters}" min="50"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Min Photos Per Shift</div></div><div class="sr-control"><input class="settings-input-inline" id="st-minphotos" type="number" value="${minPhotosPerShift}" min="1"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Late Check-in Threshold (min)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-latein" type="number" value="${lateCheckinThresholdMins}" min="1"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Check-in GPS Radius (m)</div></div><div class="sr-control"><input class="settings-input-inline" id="st-gpsrad" type="number" value="${checkinRadiusMeters}" min="50"></div></div>
       <div class="setting-row"><div><div class="sr-label">Feedback Before Checkout</div><div class="sr-sub">Report must be submitted first</div></div><div class="sr-control"><label class="toggle-wrap"><input type="checkbox" id="st-feedback" ${S.requireFeedbackBeforeCheckout?'checked':''}><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><div><div class="sr-label">Show Earnings to Promoter</div></div><div class="sr-control"><label class="toggle-wrap"><input type="checkbox" id="st-earnings" ${S.showEarningsToPromoter?'checked':''}><span class="toggle-slider"></span></label></div></div>
       <div class="setting-row"><div><div class="sr-label">GPS Verification</div></div><div class="sr-control"><label class="toggle-wrap"><input type="checkbox" id="st-gps" ${S.enableGPSVerification?'checked':''}><span class="toggle-slider"></span></label></div></div>
@@ -1188,7 +1941,7 @@ async function renderSettings() {
 
     <div class="settings-card">
       <div class="settings-card-title">🎨 Appearance</div>
-      <div class="setting-row"><div><div class="sr-label">Accent Color</div></div><div class="sr-control"><input type="color" value="${S.accentColor}" onchange="applyAccent(this.value)" style="width:44px;height:28px;border-radius:6px;border:1px solid var(--oz-border2);background:none;cursor:pointer"></div></div>
+      <div class="setting-row"><div><div class="sr-label">Accent Color</div></div><div class="sr-control"><input type="color" value="${accentColor}" onchange="applyAccent(this.value)" style="width:44px;height:28px;border-radius:6px;border:1px solid var(--oz-border2);background:none;cursor:pointer"></div></div>
       <div class="color-swatch-row">
         ${['#00d4ff','#10b981','#f59e0b','#ec4899','#7c3aed','#ef4444','#f97316'].map(col=>`<div class="color-swatch" style="background:${col}" onclick="applyAccent('${col}')"></div>`).join('')}
       </div>
@@ -1352,16 +2105,41 @@ function sendMsg(text){
 }
 
 // ── BOOT ──────────────────────────────────────────────────────
-buildNav();
-showPage('dashboard');
-// Booking modal defaults — will be refreshed when settings page is opened
-document.getElementById('booking-rate-display').textContent = window.SETTINGS.hourlyRate;
-document.getElementById('booking-total-display').textContent = window.SETTINGS.hourlyRate * window.SETTINGS.shiftHours;
-// Pre-load pending application count for nav badge
 (async () => {
-  const db = window.supabaseClient;
-  const { data } = await db.from('applications').select('id, status').eq('status','pending');
-  if (data) { _appData = data; buildNav(); }
+  // Load settings from DB before rendering anything
+  try {
+    const { data: sys } = await window.supabaseClient
+      .from('system_settings').select('*').eq('id',1).single();
+    if (sys) {
+      window.SETTINGS.hourlyRate         = Number(sys.hourly_rate_zar);
+      window.SETTINGS.shiftHours         = sys.standard_shift_hrs;
+      window.SETTINGS.paymentTermsDays   = sys.payment_terms_days;
+      window.SETTINGS.minPhotosPerShift  = sys.min_photos_per_shift;
+      window.SETTINGS.accentColor        = sys.accent_color || window.SETTINGS.accentColor || '#00d4ff';
+      window.SETTINGS.lateCheckinThresholdMins = sys.late_checkin_threshold_mins || 30;
+      window.SETTINGS.checkinRadiusMeters      = sys.checkin_radius_meters || 200;
+      window.SETTINGS.requireFeedbackBeforeCheckout = sys.require_feedback_before_checkout ?? true;
+      window.SETTINGS.showEarningsToPromoter   = sys.show_earnings_to_promoter ?? true;
+      window.SETTINGS.enableGPSVerification    = sys.enable_gps_verification ?? true;
+      if (sys.accent_color) {
+        document.documentElement.style.setProperty('--oz-accent', sys.accent_color);
+      }
+    }
+  } catch(e) { console.warn('Settings load:', e); }
+
+  const stored = sessionStorage.getItem('oz_user');
+  if (stored) {
+    const u = JSON.parse(stored);
+    document.getElementById('sb-name').textContent = u.name;
+    document.getElementById('sb-av').textContent   = u.initials || u.name.split(' ').map(w=>w[0]).join('');
+  }
+
+  await buildNav();
+  showPage('dashboard');
+
+  document.getElementById('bk-rate-label').textContent  = `R${window.SETTINGS.hourlyRate}/hr`;
+  document.getElementById('bk-hrs-label').textContent   = window.SETTINGS.shiftHours;
+  document.getElementById('bk-total-label').textContent = `R${window.SETTINGS.hourlyRate * window.SETTINGS.shiftHours}`;
 })();
 </script>
 </body>

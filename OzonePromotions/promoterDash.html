@@ -72,23 +72,47 @@
 <script src="javascript/index.js"></script>
 <script>
 // @ts-nocheck
-// ── SESSION CHECK ─────────────────────────────────────────────
-let currentUser = { name:'Zanele Dlamini', initials:'ZD' };
-(async () => {
-  // TODO: Uncomment for live Supabase auth
-  // const user = await checkSession();
-  // if (!user) return;
-  const stored = sessionStorage.getItem('oz_user');
-  if (stored) {
-    const u = JSON.parse(stored);
-    currentUser = u;
-    document.getElementById('sb-name').textContent = u.name;
-    document.getElementById('sb-av').textContent   = u.initials || u.name.split(' ').map(w=>w[0]).join('');
-  }
-})();
+// ── SESSION — uses auth-session.js window.OZ_USER ─────────────
+let OZ_ME = null; // set after auth resolves
 
-function doLogout() {
-  // await window.supabaseClient.auth.signOut();
+// auth-session.js sets window.OZ_USER asynchronously.
+// We poll briefly then boot.
+async function waitForUser(retries = 20) {
+  for (let i = 0; i < retries; i++) {
+    if (window.OZ_USER) return window.OZ_USER;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return null;
+}
+
+async function boot() {
+  const user = await waitForUser();
+  if (!user) { window.location.href = 'login.html'; return; }
+
+  OZ_ME = user;
+  document.getElementById('sb-name').textContent = OZ_ME.name;
+  document.getElementById('sb-av').textContent   = OZ_ME.initials;
+
+  // Load settings for pay rate display
+  const { data: sys } = await window.supabaseClient
+    .from('system_settings').select('*').eq('id',1).single();
+  if (sys) {
+    window.SETTINGS = window.SETTINGS || {};
+    window.SETTINGS.hourlyRate        = Number(sys.hourly_rate_zar);
+    window.SETTINGS.shiftHours        = sys.standard_shift_hrs;
+    window.SETTINGS.paymentTermsDays  = sys.payment_terms_days;
+    window.SETTINGS.minPhotosPerShift = sys.min_photos_per_shift;
+    window.SETTINGS.showEarningsToPromoter = sys.show_earnings_to_promoter ?? true;
+    window.SETTINGS.requireFeedbackBeforeCheckout = sys.require_feedback_before_checkout ?? true;
+    window.SETTINGS.currencySymbol    = 'R';
+  }
+
+  await buildNav();
+  showPage('dashboard');
+}
+
+async function doLogout() {
+  await window.supabaseClient.auth.signOut();
   sessionStorage.clear();
   window.location.href = 'login.html';
 }
@@ -96,29 +120,39 @@ function doLogout() {
 // ── NAV ───────────────────────────────────────────────────────
 const NAV = [
   { section:'My Work', items:[
-    { id:'dashboard', icon:'📊', label:'Dashboard' },
-    { id:'mybookings', icon:'📅', label:'My Bookings', dynamicBadgePending:true },
-    { id:'myshift', icon:'⚡', label:'Active Shift' },
+    { id:'dashboard',   icon:'📊', label:'Dashboard' },
+    { id:'mybookings',  icon:'📅', label:'My Bookings', dynamicBadge:true },
+    { id:'myshift',     icon:'⚡', label:'Active Shift' },
   ]},
   { section:'Earnings', items:[
     { id:'mypay', icon:'💰', label:'My Pay' },
   ]},
   { section:'Submissions', items:[
     { id:'reports', icon:'📝', label:'My Reports' },
-    { id:'photos', icon:'📷', label:'My Photos' },
+    { id:'photos',  icon:'📷', label:'My Photos' },
   ]},
 ];
 
-function buildNav() {
+async function buildNav() {
+  // Count pending offers for badge
+  let pendingCount = 0;
+  if (OZ_ME) {
+    const today = new Date().toISOString().split('T')[0];
+    const { data } = await window.supabaseClient
+      .from('bookings')
+      .select('id')
+      .eq('promoter_id', OZ_ME.id)
+      .eq('status', 'pending')
+      .gte('shift_date', today);
+    pendingCount = data?.length || 0;
+  }
+
   let html = '';
   NAV.forEach(sec => {
     html += `<div class="nav-section">${sec.section}</div>`;
     sec.items.forEach(item => {
-      let badge = '';
-      if (item.dynamicBadgePending) {
-        const c = window.BOOKINGS.filter(b=>b.promoter==='Zanele Dlamini'&&b.status==='pending').length;
-        if (c > 0) badge = `<span class="nbadge nbadge-amber">${c}</span>`;
-      }
+      const badge = (item.dynamicBadge && pendingCount > 0)
+        ? `<span class="nbadge nbadge-amber">${pendingCount}</span>` : '';
       html += `<div class="nav-item" id="nav-${item.id}" onclick="showPage('${item.id}')"><span class="nav-icon">${item.icon}</span><span>${item.label}</span>${badge}</div>`;
     });
   });
@@ -126,118 +160,417 @@ function buildNav() {
 }
 
 function showPage(id) {
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+id)?.classList.add('active');
   document.getElementById('nav-'+id)?.classList.add('active');
-  const r = { dashboard:renderDashboard, mybookings:renderMyBookings, myshift:renderMyShift, mypay:renderMyPay, reports:renderReports, photos:renderPhotos };
+  const r = {
+    dashboard:  renderDashboard,
+    mybookings: renderMyBookings,
+    myshift:    renderMyShift,
+    mypay:      renderMyPay,
+    reports:    renderReports,
+    photos:     renderPhotos,
+  };
   r[id]?.();
 }
 
-// ── DASHBOARD ────────────────────────────────────────────────
-function renderDashboard() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const pending  = window.BOOKINGS.filter(b=>b.promoter==='Zanele Dlamini'&&b.status==='pending').length;
-  const upcoming = window.BOOKINGS.filter(b=>b.promoter==='Zanele Dlamini'&&b.status==='confirmed').length;
-  document.getElementById('page-dashboard').innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>Good morning, ${currentUser.name.split(' ')[0]} ☀️</h1><p>${new Date().toLocaleDateString('en-ZA',{weekday:'long',month:'long',day:'numeric'})}</p></div></div>
+// ── DASHBOARD ─────────────────────────────────────────────────
+async function renderDashboard() {
+  const el = document.getElementById('page-dashboard');
+  const S  = window.SETTINGS || {};
+  const sym = S.currencySymbol || 'R';
+  const today = new Date().toISOString().split('T')[0];
+
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)">Loading…</div>`;
+
+  const db = window.supabaseClient;
+
+  // Pending offers (not expired)
+  const { data: pending } = await db.from('bookings')
+    .select('id, ref_number, shift_date, shift_slot, store:store_id(name,retailer,branch), product:product_id(name,brand)')
+    .eq('promoter_id', OZ_ME.id).eq('status','pending').gte('shift_date', today)
+    .order('shift_date').limit(5);
+
+  // Next confirmed shift
+  const { data: upcoming } = await db.from('bookings')
+    .select('id, shift_date, shift_slot, store:store_id(name,retailer,branch), product:product_id(name,brand)')
+    .eq('promoter_id', OZ_ME.id).eq('status','confirmed').gte('shift_date', today)
+    .order('shift_date').limit(1);
+
+  // Completed count this year
+  const yearStart = new Date().getFullYear() + '-01-01';
+  const { data: completed } = await db.from('bookings')
+    .select('id, total_pay_zar').eq('promoter_id', OZ_ME.id).eq('status','completed')
+    .gte('shift_date', yearStart);
+
+  const pendingCount  = pending?.length  || 0;
+  const nextShift     = upcoming?.[0];
+  const completedCount= completed?.length|| 0;
+  const totalEarned   = (completed||[]).reduce((s,b) => s + Number(b.total_pay_zar||0), 0);
+
+  const fmtStore = b => b.store ? (b.store.retailer ? `${b.store.retailer} — ${b.store.branch}` : b.store.name) : '—';
+
+  el.innerHTML = `
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Good ${getGreeting()}, ${OZ_ME.firstName} ☀️</h1>
+      <p>${new Date().toLocaleDateString('en-ZA',{weekday:'long',month:'long',day:'numeric'})}</p>
+    </div>
+  </div>
+
   <div class="welcome-banner">
     <div>
-      <h2>${pending > 0 ? `You have ${pending} pending booking${pending!==1?'s':''} 📬` : 'All caught up! ✅'}</h2>
-      <p>Next confirmed shift: 10 June at Clicks Gateway. Check-in starts at 09:00.</p>
+      <h2>${pendingCount > 0 ? `You have ${pendingCount} pending offer${pendingCount!==1?'s':''} 📬` : nextShift ? 'Next shift coming up ✅' : 'No upcoming shifts'}</h2>
+      <p>${nextShift ? `Next: ${fmtStore(nextShift)} · ${nextShift.shift_date} · ${nextShift.shift_slot}` : pendingCount > 0 ? 'Review your offers in My Bookings.' : 'Check My Bookings for new offers.'}</p>
     </div>
-    <button class="checkin-btn" onclick="showPage('myshift')">⚡ Go to Active Shift</button>
+    <button class="checkin-btn" onclick="showPage('mybookings')">📅 View Bookings</button>
   </div>
+
   <div class="stats-grid">
-    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Upcoming Shifts</div><div class="stat-value">${upcoming}</div><div class="stat-sub">Confirmed</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Pending Response</div><div class="stat-value" style="color:${pending>0?'var(--oz-accent3)':'inherit'}">${pending}</div><div class="stat-sub"><a onclick="showPage('mybookings')" style="color:var(--oz-accent);cursor:pointer;font-size:.72rem">View →</a></div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Shifts Completed</div><div class="stat-value">24</div><div class="stat-sub">This year</div></div>
-    ${S.showEarningsToPromoter ? `<div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Earnings This Month</div><div class="stat-value" style="font-size:1.4rem">${sym}${(6*S.hourlyRate*S.shiftHours).toLocaleString()}</div><div class="stat-sub">6 shifts × ${sym}${S.hourlyRate*S.shiftHours}</div></div>` : ''}
+    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Upcoming</div><div class="stat-value">${upcoming?.length||0}</div><div class="stat-sub">Confirmed shifts</div></div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Pending Response</div><div class="stat-value" style="color:${pendingCount>0?'var(--oz-accent3)':'inherit'}">${pendingCount}</div><div class="stat-sub"><a onclick="showPage('mybookings')" style="color:var(--oz-accent);cursor:pointer;font-size:.72rem">View →</a></div></div>
+    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Shifts Done</div><div class="stat-value">${completedCount}</div><div class="stat-sub">This year</div></div>
+    ${S.showEarningsToPromoter ? `<div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Total Earned</div><div class="stat-value" style="font-size:1.3rem;color:var(--oz-green)">${sym}${totalEarned.toLocaleString()}</div><div class="stat-sub">This year</div></div>` : ''}
   </div>
-  <div class="card"><div class="card-title">Notifications</div>
-    ${pending > 0 ? `<div class="notif-item pending"><div class="notif-dot" style="background:var(--oz-accent3)"></div><div><b>New Booking Request</b><br><span style="font-size:.78rem;color:var(--oz-muted)">Clicks Westville — 17 June — ${sym}${S.hourlyRate*S.shiftHours} for ${S.shiftHours}hrs — <a onclick="showPage('mybookings')" style="color:var(--oz-accent);cursor:pointer">Accept or Decline</a></span></div></div>` : ''}
-    <div class="notif-item"><div class="notif-dot"></div><div><b>Booking Confirmed</b><br><span style="font-size:.78rem;color:var(--oz-muted)">Clicks Gateway · 10 June · Aqua Body Mist</span></div></div>
-    <div class="notif-item"><div class="notif-dot" style="background:var(--oz-green)"></div><div><b>Payment Processed</b><br><span style="font-size:.78rem;color:var(--oz-muted)">Shift 03 June — ${sym}${S.hourlyRate*S.shiftHours} paid</span></div></div>
-  </div>`;
+
+  ${pendingCount > 0 ? `
+  <div class="card">
+    <div class="card-title">🔔 Pending Offers — action needed</div>
+    ${(pending||[]).map(b => `
+    <div class="notif-item pending" style="cursor:pointer" onclick="showPage('mybookings')">
+      <div class="notif-dot" style="background:var(--oz-accent3)"></div>
+      <div>
+        <b>${b.product?.brand ? b.product.brand+' — ' : ''}${b.product?.name||'Activation'}</b>
+        <br><span style="font-size:.78rem;color:var(--oz-muted)">${fmtStore(b)} · ${b.shift_date} · ${b.shift_slot} — <span style="color:var(--oz-accent)">Tap to respond</span></span>
+      </div>
+    </div>`).join('')}
+  </div>` : ''}`;
 }
 
-// ── MY BOOKINGS ───────────────────────────────────────────────
-function renderMyBookings() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const period = window.period_mybookings || 'month';
-  const mine = OZ.filterByPeriod(window.BOOKINGS.filter(b=>b.promoter==='Zanele Dlamini'), 'date', period);
+function getGreeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+}
 
-  document.getElementById('page-mybookings').innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>My Bookings</h1><p>Upcoming and past assignments</p></div></div>
-  <div class="filter-bar">${OZ.periodTabsHtml('mybookings','renderMyBookings()')}</div>
-  ${mine.length ? mine.map(b=>`
-  <div class="card" style="margin-bottom:.9rem;border-left:3px solid ${b.status==='confirmed'?'var(--oz-green)':b.status==='pending'?'var(--oz-accent3)':'var(--oz-red)'}">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem">
-      <div>
-        <div style="font-family:var(--font-h);font-size:.95rem;font-weight:700;margin-bottom:3px">${b.product}</div>
-        <div style="color:var(--oz-muted);font-size:.84rem">📍 ${b.store}</div>
-        <div style="color:var(--oz-muted);font-size:.84rem;margin-top:1px">🗓 ${b.date} · ${b.shift}</div>
-        <div style="margin-top:6px"><span class="pay-badge">💰 ${sym}${S.hourlyRate*S.shiftHours} for ${S.shiftHours}hrs · ${sym}${S.hourlyRate}/hr</span></div>
-        ${b.notes ? `<div style="margin-top:5px;font-size:.78rem;color:var(--oz-dim)">📌 ${b.notes}</div>` : ''}
+// ── MY BOOKINGS — Supabase wired ──────────────────────────────
+async function renderMyBookings() {
+  const el  = document.getElementById('page-mybookings');
+  const S   = window.SETTINGS || {};
+  const sym = S.currencySymbol || 'R';
+  const tab = window._bookingTab || 'pending';
+  const today = new Date().toISOString().split('T')[0];
+
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading bookings…</div>`;
+
+  const db = window.supabaseClient;
+
+  // Fetch all bookings for this promoter
+  const { data: allBookings, error } = await db
+    .from('bookings')
+    .select(`
+      id, ref_number, shift_date, shift_slot, shift_hours,
+      hourly_rate_zar, total_pay_zar, status,
+      notes_for_promoter, required_promoters,
+      store:store_id(name, retailer, branch, address, region),
+      product:product_id(
+        name, brand, category, description, talking_points,
+        retail_price, min_age, sampling_allowed, compliance_notes,
+        objective, target_audience
+      )
+    `)
+    .eq('promoter_id', OZ_ME.id)
+    .order('shift_date', { ascending: false });
+
+  if (error) {
+    el.innerHTML = `<div class="card" style="padding:2rem;color:var(--oz-red)">❌ ${error.message}</div>`;
+    return;
+  }
+
+  const all = allBookings || [];
+
+  // Separate into tabs
+  const pendingOffers  = all.filter(b => b.status === 'pending'   && b.shift_date >= today);
+  const confirmed      = all.filter(b => b.status === 'confirmed' && b.shift_date >= today);
+  const history        = all.filter(b => ['completed','declined','cancelled'].includes(b.status) || (b.status !== 'pending' && b.shift_date < today));
+  const expired        = all.filter(b => b.status === 'pending'   && b.shift_date < today);
+  // Full offers = ones where manager's required_promoters count was met by others
+  // We detect these as confirmed by others; for now we show separately
+  const tabData = {
+    pending:   pendingOffers,
+    confirmed: confirmed,
+    history:   [...history, ...expired],
+  };
+  const counts = {
+    pending:   pendingOffers.length,
+    confirmed: confirmed.length,
+    history:   history.length + expired.length,
+  };
+
+  const tabBtnStyle = (t) => t === tab
+    ? `style="background:var(--oz-accent);color:#000;border-color:var(--oz-accent);font-weight:700"`
+    : `style="background:var(--oz-surface2);border:1px solid var(--oz-border2)"`;
+
+  el.innerHTML = `
+  <div class="page-header">
+    <div class="page-header-left"><h1>My Bookings</h1><p>Respond to offers and track your shifts</p></div>
+  </div>
+
+  <!-- Tab bar -->
+  <div style="display:flex;gap:8px;margin-bottom:1.2rem;flex-wrap:wrap">
+    <button class="btn" ${tabBtnStyle('pending')} onclick="window._bookingTab='pending';renderMyBookings()">
+      📬 Pending ${counts.pending > 0 ? `<span class="nbadge nbadge-amber" style="margin-left:5px">${counts.pending}</span>` : ''}
+    </button>
+    <button class="btn" ${tabBtnStyle('confirmed')} onclick="window._bookingTab='confirmed';renderMyBookings()">
+      ✅ Confirmed ${counts.confirmed > 0 ? `<span class="nbadge nbadge-green" style="margin-left:5px">${counts.confirmed}</span>` : ''}
+    </button>
+    <button class="btn" ${tabBtnStyle('history')} onclick="window._bookingTab='history';renderMyBookings()">
+      🗂 History
+    </button>
+  </div>
+
+  ${renderBookingCards(tabData[tab], tab, sym, S, today)}`;
+
+  // Refresh nav badge
+  buildNav();
+}
+
+function renderBookingCards(bookings, tab, sym, S, today) {
+  if (!bookings.length) {
+    const emptyMsg = {
+      pending:   '📭 No pending offers right now. Check back soon!',
+      confirmed: '📅 No confirmed shifts yet. Accept an offer to get started.',
+      history:   '🗂 No shift history yet.',
+    };
+    return `<div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">${emptyMsg[tab]||'Nothing here.'}</div>`;
+  }
+
+  return bookings.map(b => {
+    const fmtStore    = b.store ? (b.store.retailer ? `${b.store.retailer} — ${b.store.branch}` : b.store.name) : '—';
+    const fmtCampaign = b.product ? (b.product.brand ? `${b.product.brand} — ${b.product.name}` : b.product.name) : '—';
+    const pay         = b.total_pay_zar || ((b.hourly_rate_zar||S.hourlyRate||45) * (b.shift_hours||S.shiftHours||8));
+    const isExpired   = b.shift_date < today && b.status === 'pending';
+
+    const statusColor = {
+      pending:   'var(--oz-accent3)',
+      confirmed: 'var(--oz-green)',
+      declined:  'var(--oz-red)',
+      completed: 'var(--oz-accent)',
+      cancelled: 'var(--oz-dim)',
+    }[b.status] || 'var(--oz-dim)';
+
+    const statusBadge = isExpired
+      ? `<span class="badge badge-gray">⏰ Expired</span>`
+      : `<span class="badge" style="background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44">${b.status}</span>`;
+
+    // Campaign detail panel
+    const p = b.product;
+    const campaignDetail = p ? `
+    <div style="background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.1);border-radius:var(--r);padding:12px 14px;margin:10px 0">
+      <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-accent);font-weight:700;margin-bottom:8px">What you're promoting</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.78rem;margin-bottom:8px">
+        <div><span style="color:var(--oz-dim)">Product:</span> <strong>${p.name}</strong></div>
+        ${p.brand ? `<div><span style="color:var(--oz-dim)">Brand:</span> ${p.brand}</div>` : ''}
+        ${p.category ? `<div><span style="color:var(--oz-dim)">Category:</span> ${p.category}</div>` : ''}
+        ${p.retail_price ? `<div><span style="color:var(--oz-dim)">Retail Price:</span> <strong style="color:var(--oz-green)">R${p.retail_price}</strong></div>` : ''}
+        ${p.min_age ? `<div><span style="color:var(--oz-dim)">Min Age:</span> <span style="color:var(--oz-red)">${p.min_age}+</span></div>` : ''}
+        ${p.sampling_allowed !== null ? `<div><span style="color:var(--oz-dim)">Sampling:</span> ${p.sampling_allowed ? '✅ Allowed' : '❌ Not allowed'}</div>` : ''}
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px">
-        <span class="badge ${b.status==='confirmed'?'badge-green':b.status==='declined'?'badge-red':'badge-amber'}">${b.status}</span>
-        ${b.status==='pending' ? `<div style="display:flex;gap:5px">
-          <button class="btn btn-sm btn-success" onclick="OZ.toast('✅ Booking accepted! ${sym}${S.hourlyRate*S.shiftHours} confirmed.')">Accept</button>
-          <button class="btn btn-sm btn-danger" onclick="OZ.toast('Booking declined.')">Decline</button>
-        </div>` : ''}
-        ${b.status==='confirmed' ? `<button class="btn btn-sm btn-outline" onclick="showPage('myshift')">⚡ Go to Shift</button>` : ''}
+      ${p.description ? `<div style="font-size:.78rem;color:var(--oz-muted);margin-bottom:6px">${p.description}</div>` : ''}
+      ${p.objective ? `<div style="font-size:.75rem;color:var(--oz-muted);margin-bottom:4px">🎯 <strong>Objective:</strong> ${p.objective}</div>` : ''}
+      ${p.target_audience ? `<div style="font-size:.75rem;color:var(--oz-muted);margin-bottom:4px">👥 <strong>Audience:</strong> ${p.target_audience}</div>` : ''}
+      ${p.talking_points ? `
+      <div style="margin-top:6px">
+        <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-accent);font-weight:700;margin-bottom:4px">Talking Points</div>
+        <div style="font-size:.76rem;color:var(--oz-muted);white-space:pre-line;line-height:1.6">${p.talking_points}</div>
+      </div>` : ''}
+      ${p.compliance_notes ? `
+      <div style="margin-top:8px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:var(--r);padding:7px 10px">
+        <div style="font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--oz-red);font-weight:700;margin-bottom:3px">⚖️ Compliance</div>
+        <div style="font-size:.74rem;color:var(--oz-muted)">${p.compliance_notes}</div>
+      </div>` : ''}
+    </div>` : '';
+
+    const storeDetail = b.store ? `
+    <div style="font-size:.79rem;color:var(--oz-muted);margin-top:5px">
+      📍 ${b.store.address ? b.store.address + ', ' : ''}${b.store.region || ''}
+    </div>` : '';
+
+    // Action buttons
+    let actions = '';
+    if (b.status === 'pending' && !isExpired) {
+      actions = `
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-success" onclick="respondToOffer('${b.id}','confirmed','${b.shift_date}')">✅ Accept Offer</button>
+        <button class="btn btn-danger"  onclick="respondToOffer('${b.id}','declined', '${b.shift_date}')">❌ Decline</button>
+      </div>`;
+    } else if (b.status === 'confirmed' && b.shift_date >= today) {
+      actions = `
+      <div style="margin-top:10px">
+        <button class="btn btn-outline btn-sm" onclick="showPage('myshift')">⚡ Go to Active Shift</button>
+      </div>`;
+    }
+
+    return `
+    <div class="card" style="margin-bottom:1rem;border-left:4px solid ${statusColor}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem;margin-bottom:8px">
+        <div>
+          <div style="font-family:var(--font-h);font-size:1rem;font-weight:700;margin-bottom:2px">${fmtCampaign}</div>
+          <div style="color:var(--oz-muted);font-size:.84rem">🏪 ${fmtStore}</div>
+          <div style="color:var(--oz-muted);font-size:.84rem;margin-top:2px">🗓 ${b.shift_date} · ${b.shift_slot}</div>
+          ${storeDetail}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          ${statusBadge}
+          <span class="pay-badge">💰 ${sym}${Number(pay).toLocaleString()}</span>
+          <span style="font-size:.72rem;color:var(--oz-dim)">${b.ref_number}</span>
+        </div>
       </div>
-    </div>
-  </div>`).join('') : `<div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">No bookings for this period</div>`}`;
+      ${campaignDetail}
+      ${b.notes_for_promoter ? `<div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:var(--r);padding:8px 10px;font-size:.78rem;color:var(--oz-muted);margin-top:6px">📌 <strong style="color:var(--oz-accent3)">Note from manager:</strong> ${b.notes_for_promoter}</div>` : ''}
+      ${actions}
+    </div>`;
+  }).join('');
+}
+
+async function respondToOffer(bookingId, newStatus, shiftDate) {
+  const db    = window.supabaseClient;
+  const today = new Date().toISOString().split('T')[0];
+
+  if (newStatus === 'confirmed') {
+    // Rule 1: Cannot accept if shift date has passed
+    if (shiftDate < today) {
+      OZ.toast('⏰ This offer has expired — the shift date has passed.');
+      return;
+    }
+
+    // Rule 2: Cannot accept two jobs on the same day
+    const { data: clash } = await db
+      .from('bookings')
+      .select('id, ref_number, store:store_id(name)')
+      .eq('promoter_id', OZ_ME.id)
+      .eq('shift_date', shiftDate)
+      .eq('status', 'confirmed')
+      .limit(1);
+
+    if (clash && clash.length > 0) {
+      const clashStore = clash[0].store?.name || 'another store';
+      OZ.toast(`❌ You already have a confirmed shift on ${shiftDate} at ${clashStore}. You cannot accept two shifts on the same day.`);
+      return;
+    }
+
+    // Rule 3: Check if required_promoters slots are already filled
+    const { data: booking } = await db
+      .from('bookings')
+      .select('required_promoters, ref_number')
+      .eq('id', bookingId).single();
+
+    if (booking?.required_promoters > 1) {
+      // Count how many others already confirmed for same ref shift (same store/date/slot)
+      const { data: confirmed } = await db
+        .from('bookings')
+        .select('id')
+        .eq('store_id', (await db.from('bookings').select('store_id').eq('id',bookingId).single()).data?.store_id)
+        .eq('shift_date', shiftDate)
+        .eq('status', 'confirmed');
+
+      if ((confirmed?.length || 0) >= booking.required_promoters) {
+        OZ.toast('⚠️ Sorry — this offer is full. The required number of promoters have already accepted.');
+        return;
+      }
+    }
+  }
+
+  const { error } = await db
+    .from('bookings')
+    .update({ status: newStatus, responded_at: new Date().toISOString() })
+    .eq('id', bookingId);
+
+  if (error) { OZ.toast('❌ ' + error.message); return; }
+
+  if (newStatus === 'confirmed') {
+    OZ.toast('✅ Offer accepted! See you at the shift.');
+  } else {
+    OZ.toast('Offer declined.');
+  }
+
+  renderMyBookings();
 }
 
 // ── MY SHIFT ──────────────────────────────────────────────────
 let shiftState = { checkedIn:false, photos:0, feedbackSubmitted:false };
 
-function renderMyShift() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const c = shiftState.checkedIn, p = shiftState.photos, f = shiftState.feedbackSubmitted;
-  const canCheckout = c && p >= S.minPhotosPerShift && (!S.requireFeedbackBeforeCheckout || f);
+async function renderMyShift() {
+  const el  = document.getElementById('page-myshift');
+  const S   = window.SETTINGS || {};
+  const sym = S.currencySymbol || 'R';
+  const today = new Date().toISOString().split('T')[0];
 
-  document.getElementById('page-myshift').innerHTML = `
+  // Find today's confirmed booking
+  const { data: shifts } = await window.supabaseClient
+    .from('bookings')
+    .select(`id, shift_date, shift_slot, shift_hours, hourly_rate_zar, total_pay_zar,
+      store:store_id(name, retailer, branch, qr_store_code),
+      product:product_id(name, brand)`)
+    .eq('promoter_id', OZ_ME.id)
+    .eq('status', 'confirmed')
+    .eq('shift_date', today)
+    .limit(1);
+
+  const shift = shifts?.[0];
+  const c = shiftState.checkedIn, p = shiftState.photos, f = shiftState.feedbackSubmitted;
+  const minPhotos = S.minPhotosPerShift || 10;
+  const canCheckout = c && p >= minPhotos && (!S.requireFeedbackBeforeCheckout || f);
+
+  if (!shift) {
+    el.innerHTML = `
+    <div class="page-header"><div class="page-header-left"><h1>Active Shift</h1><p>Today's activation</p></div></div>
+    <div class="card" style="text-align:center;padding:3rem">
+      <div style="font-size:2.5rem;margin-bottom:.75rem">😴</div>
+      <div style="font-weight:700;font-size:1rem;margin-bottom:.4rem">No shift today</div>
+      <div style="font-size:.84rem;color:var(--oz-muted);margin-bottom:1.2rem">You don't have a confirmed shift scheduled for today.</div>
+      <button class="btn btn-accent" onclick="showPage('mybookings')">📅 View My Bookings</button>
+    </div>`;
+    return;
+  }
+
+  const fmtStore = shift.store ? (shift.store.retailer ? `${shift.store.retailer} — ${shift.store.branch}` : shift.store.name) : '—';
+  const pay = shift.total_pay_zar || ((shift.hourly_rate_zar||S.hourlyRate||45) * (shift.shift_hours||S.shiftHours||8));
+
+  el.innerHTML = `
   <div class="page-header"><div class="page-header-left"><h1>Active Shift</h1><p>Check in, upload photos, submit your report</p></div></div>
   <div class="card">
     <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:1rem">
       <div>
-        <div style="font-family:var(--font-h);font-size:1rem;font-weight:700">Clicks — Gateway</div>
-        <div style="color:var(--oz-muted);font-size:.82rem">Aqua Body Mist · 09:00–17:00</div>
-        <div style="margin-top:5px"><span class="pay-badge">💰 ${sym}${S.hourlyRate*S.shiftHours} for this shift</span></div>
+        <div style="font-family:var(--font-h);font-size:1rem;font-weight:700">${shift.product?.brand ? shift.product.brand+' — ' : ''}${shift.product?.name||'Activation'}</div>
+        <div style="color:var(--oz-muted);font-size:.82rem">🏪 ${fmtStore} · ${shift.shift_slot}</div>
+        <div style="margin-top:5px"><span class="pay-badge">💰 ${sym}${Number(pay).toLocaleString()} for this shift</span></div>
       </div>
       <span class="badge badge-cyan" style="margin-left:auto">Today</span>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:.9rem">
-      <!-- STEP 1 -->
       <div class="card" style="border:1px solid ${c?'var(--oz-green)':'var(--oz-border)'}">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="font-weight:600">Step 1 — Check In</div>
             <div style="font-size:.77rem;color:var(--oz-muted);margin-top:2px">Scan the store QR code to verify your location</div>
           </div>
-          ${c ? '<span class="badge badge-green">✓ Checked in 09:02</span>' : '<button class="btn btn-success" onclick="doCheckin()">📲 Scan QR</button>'}
+          ${c ? '<span class="badge badge-green">✓ Checked in</span>' : '<button class="btn btn-success" onclick="doCheckin()">📲 Scan QR</button>'}
         </div>
-        ${c ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--oz-muted)">📍 GPS: -29.7311, 31.0428 · Device: DEV-0042</div>` : ''}
       </div>
 
-      <!-- STEP 2 -->
-      <div class="card" style="border:1px solid ${p>=S.minPhotosPerShift?'var(--oz-green)':'var(--oz-border)'};opacity:${c?1:0.4}">
-        <div style="font-weight:600;margin-bottom:.4rem">Step 2 — Upload Photos <span style="font-size:.74rem;font-weight:400;color:var(--oz-muted)">(min ${S.minPhotosPerShift})</span></div>
+      <div class="card" style="border:1px solid ${p>=minPhotos?'var(--oz-green)':'var(--oz-border)'};opacity:${c?1:0.4}">
+        <div style="font-weight:600;margin-bottom:.4rem">Step 2 — Upload Photos <span style="font-size:.74rem;font-weight:400;color:var(--oz-muted)">(min ${minPhotos})</span></div>
         <div class="photo-grid" style="margin-bottom:.65rem">
-          ${Array.from({length:S.minPhotosPerShift},(_,i)=>`<div class="photo-thumb ${i<p?'filled':''}" onclick="${c?'addPhoto()':''}">${i>=p?'<span style="font-size:.9rem">📷</span>':''}</div>`).join('')}
+          ${Array.from({length:minPhotos},(_,i)=>`<div class="photo-thumb ${i<p?'filled':''}" onclick="${c?'addPhoto()':''}">${i>=p?'<span style="font-size:.9rem">📷</span>':''}</div>`).join('')}
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:.79rem;color:${p>=S.minPhotosPerShift?'var(--oz-green)':'var(--oz-muted)'}">${p}/${S.minPhotosPerShift} photos</span>
-          ${c && p < S.minPhotosPerShift ? '<button class="btn btn-sm btn-outline" onclick="addPhoto()">+ Upload Photo</button>' : ''}
+          <span style="font-size:.79rem;color:${p>=minPhotos?'var(--oz-green)':'var(--oz-muted)'}">${p}/${minPhotos} photos</span>
+          ${c && p < minPhotos ? '<button class="btn btn-sm btn-outline" onclick="addPhoto()">+ Upload Photo</button>' : ''}
         </div>
       </div>
 
-      <!-- STEP 3 -->
       <div class="card" style="border:1px solid ${f?'var(--oz-green)':'var(--oz-border)'};opacity:${c?1:0.4}">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -248,7 +581,6 @@ function renderMyShift() {
         </div>
       </div>
 
-      <!-- STEP 4 -->
       <div class="card" style="opacity:${canCheckout?1:0.35}">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div>
@@ -257,114 +589,153 @@ function renderMyShift() {
           </div>
           <button class="btn btn-danger" onclick="doCheckout()"${!canCheckout?' disabled':''}>Sign Off Shift</button>
         </div>
-        ${canCheckout ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--oz-muted)">Payment of <strong style="color:var(--oz-green)">${sym}${S.hourlyRate*S.shiftHours}</strong> will be processed within ${S.paymentTermsDays} business days.</div>` : ''}
+        ${canCheckout ? `<div style="margin-top:.6rem;font-size:.75rem;color:var(--oz-muted)">Payment of <strong style="color:var(--oz-green)">${sym}${Number(pay).toLocaleString()}</strong> processed within ${S.paymentTermsDays||5} business days.</div>` : ''}
       </div>
     </div>
   </div>`;
 }
-function doCheckin() { shiftState.checkedIn=true; OZ.toast('📍 Check-in verified — GPS captured'); renderMyShift(); }
-function addPhoto()  { if(!shiftState.checkedIn||shiftState.photos>=window.SETTINGS.maxPhotosPerShift)return; shiftState.photos++; renderMyShift(); OZ.toast('📸 Photo '+shiftState.photos+' uploaded'); }
-function doCheckout(){ const S=window.SETTINGS,sym=S.currencySymbol; OZ.toast('✅ Shift complete! '+sym+(S.hourlyRate*S.shiftHours)+' will be paid within '+S.paymentTermsDays+' days.'); shiftState={checkedIn:false,photos:0,feedbackSubmitted:false}; setTimeout(renderMyShift,1500); }
+
+function doCheckin()  { shiftState.checkedIn=true; OZ.toast('📍 Check-in verified — GPS captured'); renderMyShift(); }
+function addPhoto()   { if(!shiftState.checkedIn)return; shiftState.photos++; renderMyShift(); OZ.toast('📸 Photo '+shiftState.photos+' uploaded'); }
+function doCheckout() { const S=window.SETTINGS||{},sym=S.currencySymbol||'R'; OZ.toast('✅ Shift complete! Payment will be processed within '+(S.paymentTermsDays||5)+' days.'); shiftState={checkedIn:false,photos:0,feedbackSubmitted:false}; setTimeout(renderMyShift,1500); }
 function submitFeedback(){ OZ.closeModal('modal-feedback'); shiftState.feedbackSubmitted=true; OZ.toast('📝 Report submitted!'); renderMyShift(); }
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 
-// ── MY PAY ────────────────────────────────────────────────────
-function renderMyPay() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const period = window.period_mypay || 'month';
-  document.getElementById('page-mypay').innerHTML = `
+// ── MY PAY — Supabase wired ───────────────────────────────────
+async function renderMyPay() {
+  const el  = document.getElementById('page-mypay');
+  const S   = window.SETTINGS || {};
+  const sym = S.currencySymbol || 'R';
+
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading pay history…</div>`;
+
+  const yearStart = new Date().getFullYear() + '-01-01';
+  const { data: completed, error } = await window.supabaseClient
+    .from('bookings')
+    .select('id, shift_date, shift_slot, shift_hours, hourly_rate_zar, total_pay_zar, store:store_id(name,retailer,branch)')
+    .eq('promoter_id', OZ_ME.id)
+    .eq('status', 'completed')
+    .gte('shift_date', yearStart)
+    .order('shift_date', { ascending: false });
+
+  const rows = completed || [];
+  const totalEarned = rows.reduce((s,b) => s + Number(b.total_pay_zar||0), 0);
+  const rate = S.hourlyRate || 45;
+  const hrs  = S.shiftHours || 8;
+
+  el.innerHTML = `
   <div class="page-header"><div class="page-header-left"><h1>My Pay</h1><p>Earnings history and payment status</p></div></div>
-  <div class="filter-bar">${OZ.periodTabsHtml('mypay','renderMyPay()')}</div>
   <div class="stats-grid" style="margin-bottom:1.4rem">
-    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Total Earned (2025)</div><div class="stat-value" style="font-size:1.4rem;color:var(--oz-green)">${sym}${(24*S.hourlyRate*S.shiftHours).toLocaleString()}</div><div class="stat-sub">24 shifts × ${sym}${S.hourlyRate*S.shiftHours}</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Your Rate</div><div class="stat-value" style="font-size:1.4rem">${sym}${S.hourlyRate}</div><div class="stat-sub">per hour · ${sym}${S.hourlyRate*S.shiftHours} per ${S.shiftHours}hr shift</div></div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Payment Terms</div><div class="stat-value" style="font-size:1.1rem">${S.paymentTermsDays} days</div><div class="stat-sub">After shift sign-off</div></div>
+    <div class="stat-card" style="--accent-color:var(--oz-green)"><div class="stat-label">Total Earned (${new Date().getFullYear()})</div><div class="stat-value" style="font-size:1.3rem;color:var(--oz-green)">${sym}${totalEarned.toLocaleString()}</div><div class="stat-sub">${rows.length} shifts completed</div></div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent)"><div class="stat-label">Your Rate</div><div class="stat-value" style="font-size:1.3rem">${sym}${rate}</div><div class="stat-sub">per hour · ${sym}${rate*hrs} per ${hrs}hr shift</div></div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent3)"><div class="stat-label">Payment Terms</div><div class="stat-value" style="font-size:1.1rem">${S.paymentTermsDays||5} days</div><div class="stat-sub">After shift sign-off</div></div>
   </div>
   <div class="card">
-    <div class="card-title">Recent Payments</div>
-    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Store</th><th>Shift</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead><tbody>
-    ${[
-      {d:'2025-06-03',s:'Clicks — Gateway',sh:'09:00–17:00',h:S.shiftHours,paid:false},
-      {d:'2025-05-28',s:'Dis-Chem — Pavilion',sh:'10:00–18:00',h:S.shiftHours,paid:true},
-      {d:'2025-05-21',s:'Clicks — Westville',sh:'09:00–17:00',h:S.shiftHours,paid:true},
-      {d:'2025-05-14',s:'Pick n Pay — Musgrave',sh:'08:00–16:00',h:S.shiftHours,paid:true},
-    ].map(r=>`<tr>
-      <td>${r.d}</td><td>${r.s}</td>
-      <td style="font-size:.78rem;color:var(--oz-muted)">${r.sh}</td>
-      <td>${r.h} hrs</td>
-      <td style="font-weight:600;color:var(--oz-green)">${sym}${(r.h*S.hourlyRate).toLocaleString()}</td>
-      <td><span class="badge ${r.paid?'badge-green':'badge-amber'}">${r.paid?'Paid':'Processing'}</span></td>
-    </tr>`).join('')}
+    <div class="card-title">Completed Shifts</div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Store</th><th>Slot</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+    ${rows.length ? rows.map(r => {
+      const store = r.store ? (r.store.retailer ? r.store.retailer+' — '+r.store.branch : r.store.name) : '—';
+      return `<tr>
+        <td>${r.shift_date}</td>
+        <td style="font-size:.82rem">${store}</td>
+        <td style="font-size:.76rem;color:var(--oz-muted)">${r.shift_slot}</td>
+        <td>${r.shift_hours||hrs} hrs</td>
+        <td style="font-weight:600;color:var(--oz-green)">${sym}${Number(r.total_pay_zar||0).toLocaleString()}</td>
+        <td><span class="badge badge-green">Completed</span></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--oz-dim);padding:2rem">No completed shifts yet</td></tr>`}
     </tbody></table></div>
   </div>
   <div style="background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.12);border-radius:var(--r);padding:12px 15px;margin-top:1rem;font-size:.82rem;color:var(--oz-muted)">
-    💡 Payments are processed within <strong style="color:var(--oz-text)">${S.paymentTermsDays} business days</strong> after your shift is signed off. Contact your manager for payment queries.
+    💡 Payments are processed within <strong style="color:var(--oz-text)">${S.paymentTermsDays||5} business days</strong> after your shift is signed off.
   </div>`;
 }
 
-// ── REPORTS (promoter view) ───────────────────────────────────
-function renderReports() {
-  const period = window.period_reports || 'month';
-  let data = OZ.filterByPeriod(window.REPORTS, 'date', period).filter(r=>r.promoter==='Zanele Dlamini');
+// ── REPORTS — Supabase wired ──────────────────────────────────
+async function renderReports() {
+  const el = document.getElementById('page-reports');
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading reports…</div>`;
 
-  document.getElementById('page-reports').innerHTML = `
+  const { data: reports } = await window.supabaseClient
+    .from('shift_reports')
+    .select(`id, submitted_at, rating, customer_responses, sales_observations, stock_issues, challenges,
+      booking:booking_id(shift_date, shift_slot, store:store_id(name,retailer,branch))`)
+    .eq('promoter_id', OZ_ME.id)
+    .order('submitted_at', { ascending: false });
+
+  const rows = reports || [];
+  const ratingLabel = r => r===5?'Excellent':r===4?'Good':r===3?'Average':r===2?'Below Average':'Poor';
+
+  el.innerHTML = `
   <div class="page-header"><div class="page-header-left"><h1>My Reports</h1><p>Your submitted shift reports</p></div></div>
-  <div class="filter-bar">${OZ.periodTabsHtml('reports','renderReports()')}</div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>Store</th><th>Date</th><th>Rating</th><th>Customer Feedback</th><th>Sales</th><th>Issues</th></tr></thead><tbody>
-  ${data.length ? data.map(r=>`<tr>
-    <td>${r.store}</td><td>${r.date}</td>
-    <td><span class="badge ${r.rating==='Excellent'?'badge-green':'badge-cyan'}">${r.rating}</span></td>
-    <td style="font-size:.78rem;max-width:170px;color:var(--oz-muted)">${r.customers}</td>
-    <td style="font-size:.78rem;color:var(--oz-muted)">${r.sales}</td>
-    <td style="font-size:.78rem;color:${r.issues==='None'?'var(--oz-dim)':'var(--oz-orange)'}">${r.issues}</td>
-  </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--oz-dim);padding:2rem">No reports for this period</td></tr>`}
-  </tbody></table></div></div>`;
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Store</th><th>Rating</th><th>Customer Feedback</th><th>Sales</th><th>Issues</th></tr></thead>
+    <tbody>
+    ${rows.length ? rows.map(r => {
+      const store = r.booking?.store ? (r.booking.store.retailer ? r.booking.store.retailer+' — '+r.booking.store.branch : r.booking.store.name) : '—';
+      return `<tr>
+        <td>${r.booking?.shift_date||'—'}</td>
+        <td style="font-size:.82rem">${store}</td>
+        <td><span class="badge ${r.rating>=4?'badge-green':'badge-cyan'}">${ratingLabel(r.rating)}</span></td>
+        <td style="font-size:.76rem;max-width:160px;color:var(--oz-muted)">${r.customer_responses||'—'}</td>
+        <td style="font-size:.76rem;color:var(--oz-muted)">${r.sales_observations||'—'}</td>
+        <td style="font-size:.76rem;color:${r.stock_issues&&r.stock_issues!=='None'?'var(--oz-orange)':'var(--oz-dim)'}">${r.stock_issues||'—'}</td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="6" style="text-align:center;color:var(--oz-dim);padding:2rem">No reports submitted yet</td></tr>`}
+    </tbody>
+  </table></div></div>`;
 }
 
-// ── PHOTOS (promoter view) ────────────────────────────────────
-function renderPhotos() {
-  const S = window.SETTINGS;
-  const period = window.period_photos || 'month';
-  const data = OZ.filterByPeriod(window.ATTENDANCE, 'date', period).filter(a=>a.promoter==='Zanele Dlamini');
+// ── PHOTOS — Supabase wired ───────────────────────────────────
+async function renderPhotos() {
+  const el = document.getElementById('page-photos');
+  const S  = window.SETTINGS || {};
+  const minP = S.minPhotosPerShift || 10;
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading photos…</div>`;
 
-  document.getElementById('page-photos').innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>My Photos</h1><p>Interaction photos — min ${S.minPhotosPerShift} per shift</p></div></div>
-  <div class="filter-bar">${OZ.periodTabsHtml('photos','renderPhotos()')}</div>
-  ${data.length ? data.map(a=>`<div class="card" style="margin-bottom:1rem">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
-      <div><span style="font-weight:600">${a.store}</span><span style="color:var(--oz-muted);font-size:.82rem;margin-left:8px">${a.date}</span></div>
-      <span class="badge ${a.photos>=S.minPhotosPerShift?'badge-green':'badge-amber'}">${a.photos} photos</span>
-    </div>
-    <div class="photo-grid">
-      ${Array.from({length:S.minPhotosPerShift},(_,i)=>`<div class="photo-thumb ${i<a.photos?'filled':''}">${i>=a.photos?'📷':''}</div>`).join('')}
-    </div>
-    ${a.photos<S.minPhotosPerShift?`<div style="margin-top:.65rem;font-size:.78rem;color:var(--oz-red)">⚠️ ${S.minPhotosPerShift-a.photos} more needed</div>`:''}
-  </div>`).join('') : `<div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">No photo records for this period</div>`}`;
+  const { data: logs } = await window.supabaseClient
+    .from('attendance_logs')
+    .select(`id, photo_count, checked_in_at,
+      booking:booking_id(shift_date, store:store_id(name,retailer,branch))`)
+    .eq('promoter_id', OZ_ME.id)
+    .order('checked_in_at', { ascending: false });
+
+  const rows = logs || [];
+  el.innerHTML = `
+  <div class="page-header"><div class="page-header-left"><h1>My Photos</h1><p>Interaction photos — min ${minP} per shift</p></div></div>
+  ${rows.length ? rows.map(a => {
+    const store = a.booking?.store ? (a.booking.store.retailer ? a.booking.store.retailer+' — '+a.booking.store.branch : a.booking.store.name) : '—';
+    const n = a.photo_count || 0;
+    return `<div class="card" style="margin-bottom:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+        <div><span style="font-weight:600">${store}</span><span style="color:var(--oz-muted);font-size:.82rem;margin-left:8px">${a.booking?.shift_date||'—'}</span></div>
+        <span class="badge ${n>=minP?'badge-green':'badge-amber'}">${n} photos</span>
+      </div>
+      <div class="photo-grid">
+        ${Array.from({length:minP},(_,i)=>`<div class="photo-thumb ${i<n?'filled':''}">${i>=n?'📷':''}</div>`).join('')}
+      </div>
+      ${n<minP?`<div style="margin-top:.65rem;font-size:.78rem;color:var(--oz-red)">⚠️ ${minP-n} more needed</div>`:''}
+    </div>`;
+  }).join('') : `<div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">No photo records yet</div>`}`;
 }
 
 // ── CHATBOT ───────────────────────────────────────────────────
 let chatOpen = false;
 const KB = {
-  greeting: `Hi ${currentUser.name.split(' ')[0]}! 👋 I'm here to help. Ask about your bookings, pay, shift steps, photos, or reports.`,
-  quickReplies: ["📅 My Bookings","💰 My Pay","⚡ Active Shift","📸 Upload photos","📝 Submit report"],
+  greeting: () => `Hi ${OZ_ME?.firstName||'there'}! 👋 Ask about your bookings, pay, shift steps, or reports.`,
+  quickReplies: ["📅 My Bookings","💰 My Pay","⚡ Active Shift","📝 Submit report"],
   responses: {
-    "booking":   "Go to **My Bookings** in the sidebar to view and respond to your shift assignments.",
-    "pay":       ()=>`Your rate is **${window.SETTINGS.currencySymbol}${window.SETTINGS.hourlyRate}/hr** — **${window.SETTINGS.currencySymbol}${window.SETTINGS.hourlyRate*window.SETTINGS.shiftHours}** per shift. Check **My Pay** for your earnings history.`,
-    "earn":      ()=>`You earn ${window.SETTINGS.currencySymbol}${window.SETTINGS.hourlyRate}/hr. One ${window.SETTINGS.shiftHours}-hour shift = ${window.SETTINGS.currencySymbol}${window.SETTINGS.hourlyRate*window.SETTINGS.shiftHours}.`,
-    "paid":      ()=>`Payments are processed within ${window.SETTINGS.paymentTermsDays} business days after sign-off. Check **My Pay** for status.`,
-    "shift":     "Go to **Active Shift ⚡** in the sidebar. Follow the 4 steps: Check In → Photos → Report → Check Out.",
-    "check in":  "In **Active Shift**, tap **Scan QR** to verify your location and log check-in.",
-    "checkin":   "In **Active Shift**, tap **Scan QR** to verify your location and log check-in.",
-    "photo":     ()=>`In **Active Shift**, Step 2 — upload at least ${window.SETTINGS.minPhotosPerShift} photos per shift.`,
-    "report":    "In **Active Shift**, Step 3 — submit your Feedback Report before checking out.",
-    "checkout":  "Complete Steps 1–3 first (Check In, Photos, Report), then the Check Out button in Step 4 unlocks.",
-    "accept":    "In **My Bookings**, find the pending booking and tap **Accept**.",
-    "decline":   "In **My Bookings**, find the pending booking and tap **Decline**.",
-    "navigate":  "Sidebar: 📅 My Bookings · ⚡ Active Shift · 💰 My Pay · 📝 My Reports · 📷 My Photos",
-    "default":   "I can help with bookings, shift check-ins, photos, reports, and your pay. What do you need?"
+    "booking":  "Go to **My Bookings** to view and respond to your shift offers.",
+    "pay":      () => `Your rate is **R${window.SETTINGS?.hourlyRate||45}/hr** — **R${(window.SETTINGS?.hourlyRate||45)*(window.SETTINGS?.shiftHours||8)}** per shift.`,
+    "shift":    "Go to **Active Shift ⚡** — follow the 4 steps: Check In → Photos → Report → Check Out.",
+    "photo":    () => `Upload at least **${window.SETTINGS?.minPhotosPerShift||10} photos** in Active Shift Step 2.`,
+    "report":   "Submit your Feedback Report in **Active Shift** Step 3 before checking out.",
+    "accept":   "In **My Bookings**, find the pending offer and tap **Accept**. You can't accept two shifts on the same day.",
+    "decline":  "In **My Bookings**, find the pending offer and tap **Decline**.",
+    "default":  "I can help with bookings, shifts, photos, reports, and pay. What do you need?"
   }
 };
-function toggleChat(){chatOpen=!chatOpen;document.getElementById('chat-panel').classList.toggle('open',chatOpen);document.getElementById('chat-badge').style.display='none';if(chatOpen&&document.getElementById('chat-messages').children.length===0){addBot(KB.greeting);setQR(KB.quickReplies);}}
+function toggleChat(){chatOpen=!chatOpen;document.getElementById('chat-panel').classList.toggle('open',chatOpen);document.getElementById('chat-badge').style.display='none';if(chatOpen&&document.getElementById('chat-messages').children.length===0){addBot(typeof KB.greeting==='function'?KB.greeting():KB.greeting);setQR(KB.quickReplies);}}
 function addBot(text,delay=0){const msgs=document.getElementById('chat-messages');if(delay>0){const t=document.createElement('div');t.className='chat-msg bot';t.innerHTML='<div class="chat-typing"><span></span><span></span><span></span></div>';t.id='typ';msgs.appendChild(t);msgs.scrollTop=msgs.scrollHeight;setTimeout(()=>{document.getElementById('typ')?.remove();appendBot(text);},delay);}else appendBot(text);}
 function appendBot(text){const msgs=document.getElementById('chat-messages'),el=document.createElement('div');el.className='chat-msg bot';const resolved=typeof text==='function'?text():text;el.innerHTML=`<div class="chat-bubble">${resolved.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><div class="chat-time">${new Date().toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'})}</div>`;msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;}
 function setQR(chips){document.getElementById('chat-qr').innerHTML=chips.map(c=>`<span class="qr-chip" onclick="handleQR('${c}')">${c}</span>`).join('');}
@@ -377,7 +748,7 @@ function sendMsg(text){
   const q=text.toLowerCase();let r=null;
   if(q.includes('booking')){r=KB.responses['booking'];setTimeout(()=>showPage('mybookings'),1200);}
   else if(q.includes('pay')||q.includes('earn')){r=KB.responses['pay'];setTimeout(()=>showPage('mypay'),1200);}
-  else if(q.includes('shift')||q.includes('check in')||q.includes('checkin')){r=KB.responses['shift'];setTimeout(()=>showPage('myshift'),1200);}
+  else if(q.includes('shift')||q.includes('check')){r=KB.responses['shift'];setTimeout(()=>showPage('myshift'),1200);}
   else if(q.includes('photo')){r=KB.responses['photo'];setTimeout(()=>showPage('myshift'),1200);}
   else if(q.includes('report')){r=KB.responses['report'];setTimeout(()=>showPage('myshift'),1200);}
   else{for(const[k,v]of Object.entries(KB.responses)){if(k!=='default'&&q.includes(k)){r=v;break;}}}
@@ -387,8 +758,8 @@ function sendMsg(text){
 }
 
 // ── BOOT ──────────────────────────────────────────────────────
-buildNav();
-showPage('dashboard');
+boot();
 </script>
+
 </body>
 </html>
