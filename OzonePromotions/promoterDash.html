@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<!-- SIDEBAR -->
+<!-- SIDEBAR (desktop only) -->
 <nav class="sidebar">
   <div class="sidebar-brand"><div class="brand">⬡ OZONE</div><div class="sub">Promoter Portal</div></div>
   <div class="user-badge">
@@ -17,6 +17,33 @@
   </div>
   <div id="nav-menu"></div>
   <div class="sidebar-bottom"><button class="btn-logout" onclick="doLogout()">⏻ Sign Out</button></div>
+</nav>
+
+<!-- MOBILE HEADER (shown only on small screens via CSS) -->
+<div class="mobile-header" id="mobile-header">
+  <div class="mob-brand">⬡ OZONE</div>
+  <div class="mob-user" id="mob-username">Promoter Portal</div>
+  <button class="mob-signout" onclick="doLogout()">⏻ Sign out</button>
+</div>
+
+<!-- MOBILE BOTTOM NAV (shown only on small screens via CSS) -->
+<nav class="mobile-bottom-nav" id="mobile-bottom-nav">
+  <button class="mob-nav-btn" id="mob-nav-dashboard" onclick="showPage('dashboard')">
+    <span class="mob-icon">📊</span>Home
+  </button>
+  <button class="mob-nav-btn" id="mob-nav-mybookings" onclick="showPage('mybookings')">
+    <span class="mob-icon">📅</span>Bookings
+    <span class="mob-badge" id="mob-badge-bookings" style="display:none"></span>
+  </button>
+  <button class="mob-nav-btn" id="mob-nav-myshift" onclick="showPage('myshift')">
+    <span class="mob-icon">⚡</span>Shift
+  </button>
+  <button class="mob-nav-btn" id="mob-nav-mypay" onclick="showPage('mypay')">
+    <span class="mob-icon">💰</span>Pay
+  </button>
+  <button class="mob-nav-btn" id="mob-nav-reports" onclick="showPage('reports')">
+    <span class="mob-icon">📝</span>Reports
+  </button>
 </nav>
 
 <!-- MAIN -->
@@ -186,6 +213,15 @@ async function buildNav() {
       .eq('status', 'pending')
       .gte('shift_date', today);
     pendingCount = data?.length || 0;
+    // Sync mobile bottom nav badge
+  const mobBadge = document.getElementById('mob-badge-bookings');
+  if (mobBadge) {
+    mobBadge.textContent = pendingCount;
+    mobBadge.style.display = pendingCount > 0 ? 'block' : 'none';
+  }
+  // Update mobile header username
+  const mobUser = document.getElementById('mob-username');
+  if (mobUser && OZ_ME) mobUser.textContent = OZ_ME.name;
   }
 
   let html = '';
@@ -203,8 +239,10 @@ async function buildNav() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.mob-nav-btn').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+id)?.classList.add('active');
   document.getElementById('nav-'+id)?.classList.add('active');
+  document.getElementById('mob-nav-'+id)?.classList.add('active');
   const r = {
     dashboard:  renderDashboard,
     mybookings: renderMyBookings,
@@ -1563,37 +1601,212 @@ async function renderReports() {
   </table></div></div>`;
 }
 
-// ── PHOTOS — Supabase wired ───────────────────────────────────
+// ── MY PHOTOS ─────────────────────────────────────────────────
 async function renderPhotos() {
-  const el = document.getElementById('page-photos');
-  const S  = window.SETTINGS || {};
+  const el  = document.getElementById('page-photos');
+  const db  = window.supabaseClient;
+  const S   = window.SETTINGS || {};
   const minP = S.minPhotosPerShift || 10;
-  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)"><div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading photos…</div>`;
 
-  const { data: logs } = await window.supabaseClient
-    .from('attendance_logs')
-    .select(`id, photo_count, checked_in_at,
-      booking:booking_id(shift_date, store:store_id(name,retailer,branch))`)
+  el.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading photos…</div>`;
+
+  // ── Fetch all photos with metadata ───────────────────────────
+  const { data: photos, error } = await db
+    .from('shift_photos')
+    .select(`
+      id, file_name, public_url, storage_path,
+      uploaded_at, file_size_bytes,
+      campaign_name, store_name, shift_date, shift_slot,
+      shift_pay_zar, shift_hours, booking_id
+    `)
     .eq('promoter_id', OZ_ME.id)
-    .order('checked_in_at', { ascending: false });
+    .order('uploaded_at', { ascending: false });
 
-  const rows = logs || [];
+  if (error) {
+    el.innerHTML = `<div class="card" style="color:var(--oz-red);padding:2rem">
+      ⚠️ Could not load photos: ${error.message}</div>`;
+    return;
+  }
+
+  const list = photos || [];
+
+  // ── Build filter options from actual data ─────────────────────
+  const campaigns = [...new Set(list.map(p => p.campaign_name).filter(Boolean))];
+  const dates     = [...new Set(list.map(p => p.shift_date).filter(Boolean))].sort().reverse();
+
+  // ── Read active filters ───────────────────────────────────────
+  const campF = document.getElementById('ph-campaign')?.value || 'all';
+  const dateF = document.getElementById('ph-date')?.value     || 'all';
+
+  // ── Apply filters ─────────────────────────────────────────────
+  let filtered = list;
+  if (campF !== 'all') filtered = filtered.filter(p => p.campaign_name === campF);
+  if (dateF !== 'all') filtered = filtered.filter(p => p.shift_date    === dateF);
+
+  // ── Group by campaign + date (album per shift day) ────────────
+  const albums = {};
+  filtered.forEach(p => {
+    const key = `${p.campaign_name || 'Unknown'}__${p.shift_date || 'unknown'}`;
+    if (!albums[key]) {
+      albums[key] = {
+        campaign:  p.campaign_name || 'Unknown Campaign',
+        date:      p.shift_date    || null,
+        store:     p.store_name    || '—',
+        slot:      p.shift_slot    || '—',
+        pay:       p.shift_pay_zar || null,
+        hours:     p.shift_hours   || null,
+        photos:    [],
+      };
+    }
+    albums[key].photos.push(p);
+  });
+
+  const albumList = Object.values(albums);
+
+  // ── Render ────────────────────────────────────────────────────
   el.innerHTML = `
-  <div class="page-header"><div class="page-header-left"><h1>My Photos</h1><p>Interaction photos — min ${minP} per shift</p></div></div>
-  ${rows.length ? rows.map(a => {
-    const store = a.booking?.store ? (a.booking.store.retailer ? a.booking.store.retailer+' — '+a.booking.store.branch : a.booking.store.name) : '—';
-    const n = a.photo_count || 0;
-    return `<div class="card" style="margin-bottom:1rem">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
-        <div><span style="font-weight:600">${store}</span><span style="color:var(--oz-muted);font-size:.82rem;margin-left:8px">${a.booking?.shift_date||'—'}</span></div>
-        <span class="badge ${n>=minP?'badge-green':'badge-amber'}">${n} photos</span>
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>My Photos</h1>
+      <p>${list.length} photo${list.length !== 1 ? 's' : ''} across ${Object.keys(albums).length || 0} shift${Object.keys(albums).length !== 1 ? 's' : ''}</p>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar" style="margin-bottom:1.1rem">
+    <select id="ph-campaign" onchange="renderPhotos()">
+      <option value="all">All Campaigns</option>
+      ${campaigns.map(c =>
+        `<option value="${c}"${campF===c?' selected':''}>${c}</option>`
+      ).join('')}
+    </select>
+    <select id="ph-date" onchange="renderPhotos()">
+      <option value="all">All Dates</option>
+      ${dates.map(d => {
+        const label = new Date(d).toLocaleDateString('en-ZA',
+          { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+        return `<option value="${d}"${dateF===d?' selected':''}>${label}</option>`;
+      }).join('')}
+    </select>
+    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">
+      ${filtered.length} photo${filtered.length !== 1 ? 's' : ''}
+    </span>
+  </div>
+
+  ${!albumList.length ? `
+  <div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">
+    <div style="font-size:2.5rem;margin-bottom:.75rem">📷</div>
+    <div style="font-weight:600;margin-bottom:.35rem">No photos found</div>
+    <div style="font-size:.82rem">
+      ${list.length ? 'Try a different filter.' : 'Photos you upload during shifts will appear here.'}
+    </div>
+  </div>` :
+
+  albumList.map(album => {
+    const count    = album.photos.length;
+    const dateStr  = album.date
+      ? new Date(album.date).toLocaleDateString('en-ZA',
+          { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+      : '—';
+    const meetsMin = count >= minP;
+    const sym      = S.currencySymbol || 'R';
+
+    return `
+    <div class="card" style="margin-bottom:1.1rem;
+         border-top:3px solid ${meetsMin ? 'var(--oz-green)' : 'var(--oz-accent)'}">
+
+      <!-- Album header -->
+      <div style="display:flex;align-items:flex-start;
+           justify-content:space-between;margin-bottom:.75rem;gap:.5rem">
+        <div style="flex:1">
+          <!-- Campaign tag -->
+          <div style="display:inline-flex;align-items:center;gap:6px;
+               background:var(--oz-accent);color:#000;font-size:.68rem;
+               font-weight:700;padding:3px 10px;border-radius:20px;
+               letter-spacing:.04em;text-transform:uppercase;margin-bottom:.45rem">
+            📁 ${album.campaign}
+          </div>
+          <div style="font-size:.82rem;font-weight:600;color:var(--oz-text)">
+            ${dateStr}
+          </div>
+          <div style="font-size:.76rem;color:var(--oz-muted);margin-top:2px">
+            🏪 ${album.store}
+            ${album.slot ? ` &nbsp;·&nbsp; 🕐 ${album.slot}` : ''}
+            ${album.pay  ? ` &nbsp;·&nbsp; 💰 ${sym}${Number(album.pay).toLocaleString()}` : ''}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <span class="badge ${meetsMin ? 'badge-green' : 'badge-amber'}">
+            ${count} photo${count !== 1 ? 's' : ''}
+          </span>
+          ${!meetsMin ? `
+          <div style="font-size:.7rem;color:var(--oz-red);margin-top:4px">
+            ⚠️ ${minP - count} more needed
+          </div>` : ''}
+        </div>
       </div>
-      <div class="photo-grid">
-        ${Array.from({length:minP},(_,i)=>`<div class="photo-thumb ${i<n?'filled':''}">${i>=n?'📷':''}</div>`).join('')}
+
+      <!-- Photo grid -->
+      <div style="display:grid;
+           grid-template-columns:repeat(auto-fill,minmax(85px,1fr));gap:8px;
+           margin-bottom:.75rem">
+        ${album.photos.map((photo, i) => {
+          const timeStr = photo.uploaded_at
+            ? new Date(photo.uploaded_at).toLocaleTimeString('en-ZA',
+                { hour:'2-digit', minute:'2-digit' })
+            : '';
+          const sizeKb = photo.file_size_bytes
+            ? (photo.file_size_bytes / 1024).toFixed(0) + 'KB'
+            : '';
+          return `
+          <div onclick="previewPhoto('${photo.public_url}','${photo.file_name}','${timeStr}','${sizeKb}')"
+               style="position:relative;aspect-ratio:1;border-radius:8px;
+                      overflow:hidden;background:var(--oz-surface2);
+                      border:2px solid var(--oz-border2);cursor:pointer;
+                      transition:transform .15s"
+               onmouseover="this.style.transform='scale(1.04)'"
+               onmouseout="this.style.transform='scale(1)'"
+               title="${photo.file_name} · ${timeStr}">
+            ${photo.public_url ? `
+              <img src="${photo.public_url}"
+                   alt="Photo ${i + 1}"
+                   style="width:100%;height:100%;object-fit:cover;display:block"
+                   onerror="this.style.display='none';
+                            this.nextElementSibling.style.display='flex'">
+              <div style="display:none;align-items:center;justify-content:center;
+                   width:100%;height:100%;font-size:1.5rem">📷</div>
+            ` : `
+              <div style="display:flex;align-items:center;justify-content:center;
+                   width:100%;height:100%;font-size:1.5rem">📷</div>
+            `}
+            <!-- Number badge -->
+            <div style="position:absolute;top:4px;left:4px;
+                 background:rgba(0,0,0,.65);color:#fff;
+                 font-size:.58rem;font-weight:700;
+                 padding:2px 5px;border-radius:8px">
+              ${i + 1}
+            </div>
+          </div>`;
+        }).join('')}
       </div>
-      ${n<minP?`<div style="margin-top:.65rem;font-size:.78rem;color:var(--oz-red)">⚠️ ${minP-n} more needed</div>`:''}
+
+      <!-- Progress bar -->
+      <div style="background:var(--oz-border2);border-radius:10px;
+           height:5px;overflow:hidden">
+        <div style="height:100%;border-radius:10px;transition:width .4s ease;
+             background:${meetsMin ? 'var(--oz-green)' : 'var(--oz-accent)'};
+             width:${Math.min(100, Math.round((count / minP) * 100))}%">
+        </div>
+      </div>
+      <div style="font-size:.72rem;color:var(--oz-dim);
+           margin-top:.35rem;text-align:right">
+        ${Math.min(100, Math.round((count / minP) * 100))}% of minimum
+      </div>
+
     </div>`;
-  }).join('') : `<div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">No photo records yet</div>`}`;
+  }).join('')}
+  `;
 }
 
 // ── CHATBOT ───────────────────────────────────────────────────

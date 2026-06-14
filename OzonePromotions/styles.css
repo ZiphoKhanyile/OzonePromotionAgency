@@ -328,10 +328,80 @@ tr:last-child td { border-bottom:none; }
   .form-row, .form-row-3 { grid-template-columns:1fr; }
   .chat-panel { width:290px; }
 }
+
+/* ── MOBILE (<640px) ───────────────────────────────────────── */
 @media (max-width:640px) {
-  .sidebar { transform:translateX(-100%); }
-  .main-content { margin-left:0; }
+  /* Hide sidebar, show bottom nav instead */
+  .sidebar { display:none; }
+  .main-content { margin-left:0; padding:.75rem .9rem 90px; }
+
+  /* Bottom navigation bar */
+  .mobile-bottom-nav {
+    display:flex !important;
+    position:fixed; bottom:0; left:0; right:0; z-index:200;
+    background:var(--oz-surface);
+    border-top:1px solid var(--oz-border);
+    padding:6px 0 env(safe-area-inset-bottom, 6px);
+  }
+  .mob-nav-btn {
+    flex:1; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:3px; padding:6px 2px;
+    background:none; border:none; cursor:pointer;
+    font-size:.58rem; color:var(--oz-dim);
+    font-family:var(--font-b); letter-spacing:.02em;
+    transition:color .15s; position:relative;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .mob-nav-btn .mob-icon { font-size:1.25rem; line-height:1; }
+  .mob-nav-btn.active { color:var(--oz-accent); }
+  .mob-nav-btn .mob-badge {
+    position:absolute; top:4px; right:18%;
+    background:var(--oz-accent3); color:#fff;
+    font-size:.5rem; font-weight:700;
+    border-radius:20px; padding:1px 5px; min-width:14px;
+    text-align:center; line-height:1.4;
+  }
+
+  /* Mobile header strip (name + hamburger) */
+  .mobile-header {
+    display:flex !important;
+    align-items:center; justify-content:space-between;
+    padding:.6rem .9rem; margin:-.75rem -.9rem .9rem;
+    background:var(--oz-surface);
+    border-bottom:1px solid var(--oz-border);
+    position:sticky; top:0; z-index:150;
+  }
+  .mobile-header .mob-brand {
+    font-family:var(--font-h); font-size:1rem; font-weight:800;
+    background:linear-gradient(135deg,var(--oz-accent),var(--oz-accent2));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    background-clip:text;
+  }
+  .mobile-header .mob-user {
+    font-size:.75rem; color:var(--oz-muted);
+  }
+  .mob-signout {
+    background:none; border:1px solid var(--oz-border2);
+    border-radius:var(--r); color:var(--oz-muted);
+    font-size:.72rem; padding:5px 10px; cursor:pointer;
+    font-family:var(--font-b);
+  }
+  .mob-signout:hover { color:var(--oz-red); border-color:var(--oz-red); }
+
+  /* Cards and content spacing */
+  .card { padding:.85rem; }
+  .page-header h1 { font-size:1.25rem; }
+  .stats-grid { grid-template-columns:1fr 1fr; gap:.6rem; }
+  .stat-card { padding:.75rem; }
+  .stat-value { font-size:1.6rem; }
+  .table-wrap { font-size:.75rem; }
+  .chat-panel { width:100%; right:0; left:0; border-radius:var(--r-lg) var(--r-lg) 0 0; }
+  .chat-fab { bottom:80px; } /* lift above bottom nav */
 }
+
+/* Hide bottom nav on desktop */
+.mobile-bottom-nav { display:none; }
+.mobile-header { display:none; }
 /* Loading spinner */
 .loading-spinner{width:32px;height:32px;border:3px solid rgba(0,212,255,.2);border-top-color:#00d4ff;border-radius:50%;animation:oz-spin .7s linear infinite;display:inline-block;}
 @keyframes oz-spin{to{transform:rotate(360deg);}}

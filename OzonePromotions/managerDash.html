@@ -366,6 +366,11 @@ async function buildNav() {
 let biCharts = {};
 function showPage(id) {
   Object.values(biCharts).forEach(c=>c&&c.destroy&&c.destroy()); biCharts={};
+  // Tear down attendance realtime when leaving the page
+  if (id !== 'attendance' && _attChannel) {
+    window.supabaseClient.removeChannel(_attChannel);
+    _attChannel = null;
+  }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+id)?.classList.add('active');
@@ -1023,59 +1028,171 @@ async function cancelOffer(id) {
 
 
 // ── ATTENDANCE ────────────────────────────────────────────────
-function renderAttendance() {
-  const S       = window.SETTINGS;
+// ── ATTENDANCE — realtime Supabase ───────────────────────────
+let _attChannel = null; // holds the realtime subscription
+
+async function renderAttendance() {
+  const el     = document.getElementById('page-attendance');
+  const db     = window.supabaseClient;
+  const today  = new Date().toISOString().split('T')[0];
   const search  = document.getElementById('att-search')?.value  || '';
   const statusF = document.getElementById('att-status')?.value  || 'all';
   const storeF  = document.getElementById('att-store')?.value   || 'all';
-  const period  = window.period_attendance || 'month';
+  const period  = window.period_attendance || 'today';
 
-  // Build roll-call rows from ACTIVATIONS (past + today only)
-  const today = new Date(new Date().toDateString());
-  let acts = window.ACTIVATIONS.filter(a => {
-    const d = new Date(a.date);
-    return d <= today && a.bookingStatus === 'confirmed';
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading attendance…</div>`;
+
+  // ── 1. Date range from period ─────────────────────────────────
+  const now = new Date();
+  let fromDate, toDate = today;
+  if      (period === 'today') fromDate = today;
+  else if (period === 'week')  {
+    const w = new Date(now);
+    w.setDate(now.getDate() - 7);
+    fromDate = w.toISOString().split('T')[0];
+  }
+  else if (period === 'month') {
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1)
+      .toISOString().split('T')[0];
+  }
+  else fromDate = null; // all
+
+  // ── 2. Pull confirmed bookings in range ───────────────────────
+  let bkQ = db.from('bookings').select(`
+    id, shift_date, shift_slot, status,
+    promoter:promoter_id(id, first_name, last_name),
+    store:store_id(id, name, retailer, branch),
+    product:product_id(name, brand)
+  `)
+  .eq('status', 'confirmed')
+  .lte('shift_date', today)          // only past + today
+  .order('shift_date', { ascending: false });
+
+  if (fromDate) bkQ = bkQ.gte('shift_date', fromDate);
+  if (storeF !== 'all') bkQ = bkQ.eq('store_id', storeF);
+
+  const { data: bookings } = await bkQ;
+  const rows = bookings || [];
+
+  // ── 3. Pull attendance_logs for these bookings ────────────────
+  const bookingIds = rows.map(b => b.id);
+  let logsMap = {};
+  if (bookingIds.length) {
+    const { data: logs } = await db
+      .from('attendance_logs')
+      .select('booking_id, checked_in_at, checked_out_at, status, checkin_device_id')
+      .in('booking_id', bookingIds);
+    (logs || []).forEach(l => { logsMap[l.booking_id] = l; });
+  }
+
+  // ── 4. Build roll-call rows ───────────────────────────────────
+  let rollCall = rows.map(b => {
+    const log        = logsMap[b.id] || null;
+    const checkedIn  = !!log?.checked_in_at;
+    const checkedOut = !!log?.checked_out_at;
+    const promoterName = b.promoter
+      ? `${b.promoter.first_name} ${b.promoter.last_name}` : '—';
+    const storeName = b.store
+      ? (b.store.retailer
+          ? `${b.store.retailer} — ${b.store.branch}`
+          : b.store.name)
+      : '—';
+    const campaign = b.product
+      ? (b.product.brand
+          ? `${b.product.brand} — ${b.product.name}`
+          : b.product.name)
+      : '—';
+    const scanTime = log?.checked_in_at
+      ? new Date(log.checked_in_at).toLocaleTimeString('en-ZA',
+          { hour:'2-digit', minute:'2-digit' })
+      : '—';
+    const outTime = log?.checked_out_at
+      ? new Date(log.checked_out_at).toLocaleTimeString('en-ZA',
+          { hour:'2-digit', minute:'2-digit' })
+      : '—';
+    const status = checkedOut ? 'completed'
+                 : checkedIn  ? 'present'
+                 : 'absent';
+    return {
+      bookingId: b.id,
+      promoter:  promoterName,
+      storeId:   b.store?.id || '',
+      store:     storeName,
+      date:      b.shift_date,
+      shift:     b.shift_slot || '—',
+      campaign,
+      scanTime,
+      outTime,
+      device:    log?.checkin_device_id?.slice(0, 30) || '—',
+      status,
+    };
   });
-  acts = OZ.filterByPeriod(acts, 'date', period);
-  if (storeF !== 'all') acts = acts.filter(a => a.store === storeF);
 
-  // Flatten into per-promoter rows for filtering/display
-  let rows = [];
-  acts.forEach(act => {
-    act.promoters.forEach(promoter => {
-      const scan   = act.scans.find(s => s.promoter === promoter);
-      const status = scan ? 'present' : 'absent';
-      rows.push({
-        promoter, status,
-        store:   act.store,
-        date:    act.date,
-        actId:   act.id,
-        product: act.product,
-        shift:   act.shift,
-        time:    scan?.time   || '—',
-        device:  scan?.device || '—',
-      });
-    });
-  });
+  // ── 5. Client-side filters ────────────────────────────────────
+  if (search) rollCall = rollCall.filter(r =>
+    r.promoter.toLowerCase().includes(search.toLowerCase()) ||
+    r.store.toLowerCase().includes(search.toLowerCase()) ||
+    r.campaign.toLowerCase().includes(search.toLowerCase())
+  );
+  if (statusF !== 'all') rollCall = rollCall.filter(r => r.status === statusF);
 
-  if (search)            rows = rows.filter(r => r.promoter.toLowerCase().includes(search.toLowerCase()) || r.store.toLowerCase().includes(search.toLowerCase()));
-  if (statusF !== 'all') rows = rows.filter(r => r.status === statusF);
+  // ── 6. Stats ──────────────────────────────────────────────────
+  const presentCount   = rollCall.filter(r => r.status === 'present').length;
+  const completedCount = rollCall.filter(r => r.status === 'completed').length;
+  const absentCount    = rollCall.filter(r => r.status === 'absent').length;
+  const totalActive    = rollCall.length;
+  const rate = totalActive
+    ? Math.round(((presentCount + completedCount) / totalActive) * 100) : 0;
 
-  const presentCount = rows.filter(r => r.status === 'present').length;
-  const absentCount  = rows.filter(r => r.status === 'absent').length;
-  const rate         = rows.length ? Math.round((presentCount / rows.length) * 100) : 0;
+  // ── 7. Store options from DB rows ─────────────────────────────
+  const storeOpts = [
+    ...new Map(rows.map(b => [b.store?.id,
+      { id: b.store?.id, name: b.store
+          ? (b.store.retailer
+              ? `${b.store.retailer} — ${b.store.branch}`
+              : b.store.name)
+          : '—' }
+    ])).values()
+  ];
 
-  document.getElementById('page-attendance').innerHTML = `
+  // ── 8. Render ─────────────────────────────────────────────────
+  el.innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Attendance</h1><p>QR scan roll-call per activation</p></div>
+    <div class="page-header-left">
+      <h1>Attendance</h1>
+      <p>Live QR scan roll-call
+        <span id="att-live-dot"
+          style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                 background:var(--oz-green);margin-left:6px;margin-bottom:1px;
+                 box-shadow:0 0 0 0 rgba(16,185,129,.6);
+                 animation:att-pulse 1.8s infinite"></span>
+        Realtime
+      </p>
+    </div>
   </div>
 
+  <style>
+    @keyframes att-pulse {
+      0%   { box-shadow:0 0 0 0 rgba(16,185,129,.6) }
+      70%  { box-shadow:0 0 0 7px rgba(16,185,129,0) }
+      100% { box-shadow:0 0 0 0 rgba(16,185,129,0) }
+    }
+  </style>
+
+  <!-- Stats -->
   <div class="stats-grid" style="margin-bottom:1rem">
     <div class="stat-card" style="--accent-color:var(--oz-green)">
-      <div class="stat-label">Present</div>
+      <div class="stat-label">Checked In</div>
       <div class="stat-value">${presentCount}</div>
-      <div class="stat-sub">Scanned in</div>
+      <div class="stat-sub">On shift now</div>
       <div class="stat-icon">✅</div>
+    </div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent)">
+      <div class="stat-label">Completed</div>
+      <div class="stat-value">${completedCount}</div>
+      <div class="stat-sub">Checked out</div>
+      <div class="stat-icon">🏁</div>
     </div>
     <div class="stat-card" style="--accent-color:var(--oz-red)">
       <div class="stat-label">Absent</div>
@@ -1083,48 +1200,210 @@ function renderAttendance() {
       <div class="stat-sub">No QR scan</div>
       <div class="stat-icon">❌</div>
     </div>
-    <div class="stat-card" style="--accent-color:var(--oz-accent)">
-      <div class="stat-label">Attendance rate</div>
+    <div class="stat-card" style="--accent-color:var(--oz-accent2)">
+      <div class="stat-label">Attendance Rate</div>
       <div class="stat-value">${rate}%</div>
-      <div class="stat-sub">${rows.length} total slots</div>
+      <div class="stat-sub">${totalActive} total slots</div>
       <div class="stat-icon">📊</div>
     </div>
   </div>
 
+  <!-- Filters -->
   <div class="filter-bar">
-    <input type="text" id="att-search" placeholder="🔍 Search promoter or store…" value="${search}" oninput="renderAttendance()">
+    <input type="text" id="att-search"
+      placeholder="🔍 Search promoter, store or campaign…"
+      value="${search}" oninput="renderAttendance()">
     <select id="att-store" onchange="renderAttendance()">
-      <option value="all"${storeF==='all'?' selected':''}>All Stores</option>
-      ${S.stores.map(s=>`<option value="${s.name}"${storeF===s.name?' selected':''}>${s.name}</option>`).join('')}
+      <option value="all">All Stores</option>
+      ${storeOpts.map(s =>
+        `<option value="${s.id}"${storeF===s.id?' selected':''}>${s.name}</option>`
+      ).join('')}
     </select>
     <select id="att-status" onchange="renderAttendance()">
-      <option value="all"${statusF==='all'?' selected':''}>All</option>
+      <option value="all"${statusF==='all'?' selected':''}>All Status</option>
       <option value="present"${statusF==='present'?' selected':''}>Present</option>
+      <option value="completed"${statusF==='completed'?' selected':''}>Completed</option>
       <option value="absent"${statusF==='absent'?' selected':''}>Absent</option>
     </select>
     ${OZ.periodTabsHtml('attendance','renderAttendance()')}
   </div>
 
+  <!-- Table -->
   <div class="card"><div class="table-wrap"><table>
     <thead><tr>
-      <th>Promoter</th><th>Store</th><th>Date</th><th>Shift</th>
-      <th>Product</th><th>Scan time</th><th>Device</th><th>Status</th>
+      <th>Promoter</th>
+      <th>Store</th>
+      <th>Date</th>
+      <th>Shift</th>
+      <th>Campaign</th>
+      <th>Check In</th>
+      <th>Check Out</th>
+      <th>Status</th>
     </tr></thead>
-    <tbody>
-    ${rows.length ? rows.map(r => `<tr>
-      <td style="font-weight:600">${r.promoter}</td>
-      <td>${r.store}</td>
-      <td>${new Date(r.date).toLocaleDateString('en-ZA',{day:'numeric',month:'short',year:'numeric'})}</td>
-      <td style="font-size:.78rem;color:var(--oz-muted)">${r.shift}</td>
-      <td style="font-size:.78rem;color:var(--oz-muted)">${r.product}</td>
-      <td style="color:${r.time!=='—'?'var(--oz-green)':'var(--oz-dim)'}"><strong>${r.time}</strong></td>
-      <td><code style="font-size:.7rem;color:var(--oz-dim)">${r.device}</code></td>
-      <td><span class="badge ${r.status==='present'?'badge-green':'badge-red'}">${r.status==='present'?'✓ Present':'✗ Absent'}</span></td>
-    </tr>`).join('') : `
-    <tr><td colspan="8" style="text-align:center;color:var(--oz-dim);padding:2rem">No records for this period</td></tr>`}
+    <tbody id="att-tbody">
+    ${rollCall.length ? rollCall.map(r => attRow(r)).join('') : `
+      <tr><td colspan="8"
+        style="text-align:center;color:var(--oz-dim);padding:2.5rem">
+        No attendance records for this period
+      </td></tr>`}
     </tbody>
   </table></div></div>`;
+
+  // ── 9. Wire realtime subscription ────────────────────────────
+  _startAttendanceRealtime();
 }
+
+// Build a single table row — reused by realtime updates
+function attRow(r) {
+  const statusBadge =
+    r.status === 'present'   ? '<span class="badge badge-green">● Present</span>'
+  : r.status === 'completed' ? '<span class="badge badge-cyan">✓ Completed</span>'
+  :                            '<span class="badge badge-red">✗ Absent</span>';
+
+  const dateStr = r.date
+    ? new Date(r.date).toLocaleDateString('en-ZA',
+        { day:'numeric', month:'short', year:'numeric' })
+    : '—';
+
+  return `<tr id="att-row-${r.bookingId}">
+    <td style="font-weight:600">${r.promoter}</td>
+    <td style="font-size:.82rem">${r.store}</td>
+    <td>${dateStr}</td>
+    <td style="font-size:.78rem;color:var(--oz-muted)">${r.shift}</td>
+    <td style="font-size:.78rem;color:var(--oz-muted);max-width:140px">${r.campaign}</td>
+    <td style="color:${r.scanTime!=='—'?'var(--oz-green)':'var(--oz-dim)'};font-weight:600">
+      ${r.scanTime}
+    </td>
+    <td style="color:${r.outTime!=='—'?'var(--oz-accent)':'var(--oz-dim)'}">
+      ${r.outTime}
+    </td>
+    <td>${statusBadge}</td>
+  </tr>`;
+}
+
+function _startAttendanceRealtime() {
+  const db = window.supabaseClient;
+
+  // Tear down previous subscription if page was re-opened
+  if (_attChannel) {
+    db.removeChannel(_attChannel);
+    _attChannel = null;
+  }
+
+  _attChannel = db
+    .channel('attendance-live')
+    .on(
+      'postgres_changes',
+      {
+        event:  '*',         // INSERT and UPDATE
+        schema: 'public',
+        table:  'attendance_logs',
+      },
+      async (payload) => {
+        const log = payload.new;
+        if (!log?.booking_id) return;
+
+        // Fetch the booking to get promoter + store + product names
+        const { data: booking } = await db
+          .from('bookings')
+          .select(`
+            id, shift_date, shift_slot,
+            promoter:promoter_id(first_name, last_name),
+            store:store_id(name, retailer, branch),
+            product:product_id(name, brand)
+          `)
+          .eq('id', log.booking_id)
+          .single();
+
+        if (!booking) return;
+
+        const checkedIn  = !!log.checked_in_at;
+        const checkedOut = !!log.checked_out_at;
+
+        const r = {
+          bookingId: booking.id,
+          promoter:  booking.promoter
+            ? `${booking.promoter.first_name} ${booking.promoter.last_name}` : '—',
+          storeId:   '',
+          store:     booking.store
+            ? (booking.store.retailer
+                ? `${booking.store.retailer} — ${booking.store.branch}`
+                : booking.store.name)
+            : '—',
+          date:      booking.shift_date,
+          shift:     booking.shift_slot || '—',
+          campaign:  booking.product
+            ? (booking.product.brand
+                ? `${booking.product.brand} — ${booking.product.name}`
+                : booking.product.name)
+            : '—',
+          scanTime:  log.checked_in_at
+            ? new Date(log.checked_in_at).toLocaleTimeString('en-ZA',
+                { hour:'2-digit', minute:'2-digit' })
+            : '—',
+          outTime:   log.checked_out_at
+            ? new Date(log.checked_out_at).toLocaleTimeString('en-ZA',
+                { hour:'2-digit', minute:'2-digit' })
+            : '—',
+          device:    log.checkin_device_id?.slice(0, 30) || '—',
+          status:    checkedOut ? 'completed' : checkedIn ? 'present' : 'absent',
+        };
+
+        // ── Update existing row in DOM or prepend a new one ──────
+        const tbody    = document.getElementById('att-tbody');
+        if (!tbody) return;
+
+        const existing = document.getElementById(`att-row-${r.bookingId}`);
+        const newRow   = document.createElement('tr');
+        newRow.id      = `att-row-${r.bookingId}`;
+        newRow.innerHTML = attRow(r).replace(/^<tr[^>]*>/, '').replace(/<\/tr>$/, '');
+
+        if (existing) {
+          // Flash the updated row
+          existing.style.transition = 'background .4s';
+          existing.style.background = 'rgba(0,212,255,.12)';
+          existing.replaceWith(newRow);
+          setTimeout(() => {
+            newRow.style.transition = 'background 1.2s';
+            newRow.style.background = '';
+          }, 50);
+        } else {
+          // New check-in — prepend to top of table
+          newRow.style.background = 'rgba(16,185,129,.12)';
+          tbody.prepend(newRow);
+          setTimeout(() => {
+            newRow.style.transition = 'background 1.5s';
+            newRow.style.background = '';
+          }, 50);
+        }
+
+        // Update stat cards without full re-render
+        _refreshAttStats();
+
+        OZ.toast(`📍 ${r.promoter} ${r.status === 'completed' ? 'checked out' : 'checked in'} — ${r.store}`);
+      }
+    )
+    .subscribe();
+}
+
+// Recalculate and update the 3 stat numbers in-place
+function _refreshAttStats() {
+  const tbody = document.getElementById('att-tbody');
+  if (!tbody) return;
+  const allRows  = [...tbody.querySelectorAll('tr[id^="att-row-"]')];
+  const present  = allRows.filter(r => r.querySelector('.badge-green')).length;
+  const completed= allRows.filter(r => r.querySelector('.badge-cyan')).length;
+  const absent   = allRows.filter(r => r.querySelector('.badge-red')).length;
+  const total    = allRows.length;
+  const rate     = total ? Math.round(((present + completed) / total) * 100) : 0;
+
+  const cards = document.querySelectorAll('#page-attendance .stat-value');
+  if (cards[0]) cards[0].textContent = present;
+  if (cards[1]) cards[1].textContent = completed;
+  if (cards[2]) cards[2].textContent = absent;
+  if (cards[3]) cards[3].textContent = rate + '%';
+}
+
 
 // ── STOCK ─────────────────────────────────────────────────────
 function renderStock() {
