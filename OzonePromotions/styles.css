@@ -341,9 +341,8 @@ tr:last-child td { border-bottom:none; }
   .sidebar.mob-open {
     transform: translateX(0);
   }
-/* Overlay behind open sidebar */
+/* Overlay shown via JS when sidebar is open */
   .sidebar-overlay {
-    display: block !important;
     position: fixed; inset: 0; z-index: 299;
     background: rgba(0,0,0,.55);
   }
@@ -411,7 +410,8 @@ tr:last-child td { border-bottom:none; }
 }
 
 /* Hidden on mobile until toggled */
-.sidebar-overlay { display: none; }
+/* Hidden by default always — only shown via JS */
+.sidebar-overlay { display: none !important; }
 /* Hidden on desktop */
 .mobile-topbar { display: none; }
 /* Remove old bottom nav (replaced by sidebar) */

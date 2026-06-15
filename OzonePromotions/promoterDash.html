@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<!-- SIDEBAR OVERLAY (mobile only) -->
+<!-- SIDEBAR OVERLAY -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 
 <!-- SIDEBAR -->
@@ -39,19 +39,6 @@
   <div class="mob-topbar-user" id="mob-topbar-user">Promoter</div>
   <button class="mob-topbar-signout" onclick="doLogout()">⏻ Sign out</button>
 </div>
-</nav>
-
-<!-- MOBILE TOP BAR (visible only on small screens via CSS) -->
-<div class="mobile-topbar" id="mobile-topbar">
-  <button class="mob-hamburger" id="mob-hamburger" onclick="toggleMobileSidebar()" aria-label="Menu">
-    <span></span><span></span><span></span>
-  </button>
-  <div class="mob-topbar-brand">OZONE</div>
-  <div class="mob-topbar-user" id="mob-topbar-user">Promoter</div>
-  <button class="mob-topbar-signout" onclick="doLogout()">Sign out</button>
-</div>
-
-</nav>
 
 <!-- MAIN -->
 <main class="main-content">
@@ -276,10 +263,9 @@ function closeMobileSidebar() {
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.mob-nav-btn').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+id)?.classList.add('active');
   document.getElementById('nav-'+id)?.classList.add('active');
-  document.getElementById('mob-nav-'+id)?.classList.add('active');
+  closeMobileSidebar();
   const r = {
     dashboard:  renderDashboard,
     mybookings: renderMyBookings,
