@@ -341,12 +341,11 @@ tr:last-child td { border-bottom:none; }
   .sidebar.mob-open {
     transform: translateX(0);
   }
-  /* Overlay behind open sidebar */
+/* Overlay behind open sidebar */
   .sidebar-overlay {
     display: block !important;
     position: fixed; inset: 0; z-index: 299;
     background: rgba(0,0,0,.55);
-    backdrop-filter: blur(2px);
   }
   .main-content { margin-left: 0; padding: 0 0 1.5rem; }
 

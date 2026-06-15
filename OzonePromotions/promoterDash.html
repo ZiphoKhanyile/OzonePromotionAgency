@@ -8,12 +8,13 @@
 </head>
 <body>
 
-<!-- SIDEBAR (desktop only) -->
-<!-- SIDEBAR — desktop full, mobile hamburger-toggled -->
+<!-- SIDEBAR OVERLAY (mobile only) -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
+<!-- SIDEBAR -->
 <nav class="sidebar" id="main-sidebar">
   <div class="sidebar-brand">
-    <div class="brand">OZONE</div>
+    <div class="brand">⬡ OZONE</div>
     <div class="sub">Promoter Portal</div>
   </div>
   <div class="user-badge">
@@ -25,8 +26,19 @@
   </div>
   <div id="nav-menu"></div>
   <div class="sidebar-bottom">
-    <button class="btn-logout" onclick="doLogout()">Sign Out</button>
+    <button class="btn-logout" onclick="doLogout()">⏻ Sign Out</button>
   </div>
+</nav>
+
+<!-- MOBILE TOP BAR -->
+<div class="mobile-topbar" id="mobile-topbar">
+  <button class="mob-hamburger" id="mob-hamburger" onclick="toggleMobileSidebar()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="mob-topbar-brand">⬡ OZONE</div>
+  <div class="mob-topbar-user" id="mob-topbar-user">Promoter</div>
+  <button class="mob-topbar-signout" onclick="doLogout()">⏻ Sign out</button>
+</div>
 </nav>
 
 <!-- MOBILE TOP BAR (visible only on small screens via CSS) -->
@@ -196,16 +208,16 @@ async function doLogout() {
 // ── NAV ───────────────────────────────────────────────────────
 const NAV = [
   { section:'My Work', items:[
-    { id:'dashboard',  icon:'', label:'Dashboard' },
-    { id:'mybookings', icon:'', label:'My Bookings', dynamicBadge:true },
-    { id:'myshift',    icon:'', label:'Active Shift' },
+    { id:'dashboard',  icon:'📊', label:'Dashboard' },
+    { id:'mybookings', icon:'📅', label:'My Bookings', dynamicBadge:true },
+    { id:'myshift',    icon:'⚡', label:'Active Shift' },
   ]},
   { section:'Earnings', items:[
-    { id:'mypay', icon:'', label:'My Pay' },
+    { id:'mypay', icon:'💰', label:'My Pay' },
   ]},
   { section:'Submissions', items:[
-    { id:'reports', icon:'', label:'My Reports' },
-    { id:'photos',  icon:'', label:'My Photos'  },
+    { id:'reports', icon:'📝', label:'My Reports' },
+    { id:'photos',  icon:'📷', label:'My Photos'  },
   ]},
 ];
 
@@ -232,17 +244,12 @@ async function buildNav() {
       .eq('promoter_id', OZ_ME.id)
       .eq('status', 'pending')
       .gte('shift_date', today);
-    pendingCount = data?.length || 0;
-    // Sync mobile bottom nav badge
-  const mobBadge = document.getElementById('mob-badge-bookings');
-  if (mobBadge) {
-    mobBadge.textContent = pendingCount;
-    mobBadge.style.display = pendingCount > 0 ? 'block' : 'none';
+pendingCount = data?.length || 0;
   }
-  // Update mobile header username
-  const mobUser = document.getElementById('mob-username');
-  if (mobUser && OZ_ME) mobUser.textContent = OZ_ME.name;
-  }
+
+  // Sync mobile topbar username
+  const mobUser = document.getElementById('mob-topbar-user');
+  if (mobUser && OZ_ME) mobUser.textContent = OZ_ME.firstName || OZ_ME.name;
 
   let html = '';
   NAV.forEach(sec => {
