@@ -9,41 +9,36 @@
 <body>
 
 <!-- SIDEBAR (desktop only) -->
-<nav class="sidebar">
-  <div class="sidebar-brand"><div class="brand">⬡ OZONE</div><div class="sub">Promoter Portal</div></div>
+<!-- SIDEBAR — desktop full, mobile hamburger-toggled -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+<nav class="sidebar" id="main-sidebar">
+  <div class="sidebar-brand">
+    <div class="brand">OZONE</div>
+    <div class="sub">Promoter Portal</div>
+  </div>
   <div class="user-badge">
     <div class="user-avatar avatar-promoter" id="sb-av">ZD</div>
-    <div class="user-info"><div class="name" id="sb-name">Zanele Dlamini</div><span class="role-badge rb-promoter">Promoter</span></div>
+    <div class="user-info">
+      <div class="name" id="sb-name">Loading…</div>
+      <span class="role-badge rb-promoter">Promoter</span>
+    </div>
   </div>
   <div id="nav-menu"></div>
-  <div class="sidebar-bottom"><button class="btn-logout" onclick="doLogout()">⏻ Sign Out</button></div>
+  <div class="sidebar-bottom">
+    <button class="btn-logout" onclick="doLogout()">Sign Out</button>
+  </div>
 </nav>
 
-<!-- MOBILE HEADER (shown only on small screens via CSS) -->
-<div class="mobile-header" id="mobile-header">
-  <div class="mob-brand">⬡ OZONE</div>
-  <div class="mob-user" id="mob-username">Promoter Portal</div>
-  <button class="mob-signout" onclick="doLogout()">⏻ Sign out</button>
+<!-- MOBILE TOP BAR (visible only on small screens via CSS) -->
+<div class="mobile-topbar" id="mobile-topbar">
+  <button class="mob-hamburger" id="mob-hamburger" onclick="toggleMobileSidebar()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="mob-topbar-brand">OZONE</div>
+  <div class="mob-topbar-user" id="mob-topbar-user">Promoter</div>
+  <button class="mob-topbar-signout" onclick="doLogout()">Sign out</button>
 </div>
 
-<!-- MOBILE BOTTOM NAV (shown only on small screens via CSS) -->
-<nav class="mobile-bottom-nav" id="mobile-bottom-nav">
-  <button class="mob-nav-btn" id="mob-nav-dashboard" onclick="showPage('dashboard')">
-    <span class="mob-icon">📊</span>Home
-  </button>
-  <button class="mob-nav-btn" id="mob-nav-mybookings" onclick="showPage('mybookings')">
-    <span class="mob-icon">📅</span>Bookings
-    <span class="mob-badge" id="mob-badge-bookings" style="display:none"></span>
-  </button>
-  <button class="mob-nav-btn" id="mob-nav-myshift" onclick="showPage('myshift')">
-    <span class="mob-icon">⚡</span>Shift
-  </button>
-  <button class="mob-nav-btn" id="mob-nav-mypay" onclick="showPage('mypay')">
-    <span class="mob-icon">💰</span>Pay
-  </button>
-  <button class="mob-nav-btn" id="mob-nav-reports" onclick="showPage('reports')">
-    <span class="mob-icon">📝</span>Reports
-  </button>
 </nav>
 
 <!-- MAIN -->
@@ -135,6 +130,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="javascript/supabase.js"></script>
+<script src="javascript/chatbot.js"></script>
 <script src="javascript/auth-session.js"></script>
 <script src="javascript/index.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -160,6 +156,8 @@ async function boot() {
   OZ_ME = user;
   document.getElementById('sb-name').textContent = OZ_ME.name;
   document.getElementById('sb-av').textContent   = OZ_ME.initials;
+  const mobUser = document.getElementById('mob-topbar-user');
+  if (mobUser) mobUser.textContent = OZ_ME.name;
 
   // Load settings for pay rate display
  const { data: sys } = await window.supabaseClient
@@ -198,18 +196,30 @@ async function doLogout() {
 // ── NAV ───────────────────────────────────────────────────────
 const NAV = [
   { section:'My Work', items:[
-    { id:'dashboard',   icon:'📊', label:'Dashboard' },
-    { id:'mybookings',  icon:'📅', label:'My Bookings', dynamicBadge:true },
-    { id:'myshift',     icon:'⚡', label:'Active Shift' },
+    { id:'dashboard',  icon:'', label:'Dashboard' },
+    { id:'mybookings', icon:'', label:'My Bookings', dynamicBadge:true },
+    { id:'myshift',    icon:'', label:'Active Shift' },
   ]},
   { section:'Earnings', items:[
-    { id:'mypay', icon:'💰', label:'My Pay' },
+    { id:'mypay', icon:'', label:'My Pay' },
   ]},
   { section:'Submissions', items:[
-    { id:'reports', icon:'📝', label:'My Reports' },
-    { id:'photos',  icon:'📷', label:'My Photos' },
+    { id:'reports', icon:'', label:'My Reports' },
+    { id:'photos',  icon:'', label:'My Photos'  },
   ]},
 ];
+
+function toggleMobileSidebar() {
+  const sidebar  = document.getElementById('main-sidebar');
+  const overlay  = document.getElementById('sidebar-overlay');
+  const hamburger = document.getElementById('mob-hamburger');
+  const isOpen   = sidebar.classList.contains('mob-open');
+  sidebar.classList.toggle('mob-open', !isOpen);
+  overlay.style.display = isOpen ? 'none' : 'block';
+  hamburger.classList.toggle('is-open', !isOpen);
+}
+
+
 
 async function buildNav() {
   // Count pending offers for badge
@@ -244,6 +254,16 @@ async function buildNav() {
     });
   });
   document.getElementById('nav-menu').innerHTML = html;
+}
+
+
+function closeMobileSidebar() {
+  const sidebar   = document.getElementById('main-sidebar');
+  const overlay   = document.getElementById('sidebar-overlay');
+  const hamburger = document.getElementById('mob-hamburger');
+  sidebar.classList.remove('mob-open');
+  overlay.style.display = 'none';
+  hamburger.classList.remove('is-open');
 }
 
 function showPage(id) {
@@ -1961,43 +1981,31 @@ function closeMyPhotoAlbum() {
   document.getElementById('modal-my-photo-album')?.classList.remove('open');
 }
 
-// ── CHATBOT ───────────────────────────────────────────────────
-let chatOpen = false;
-const KB = {
-  greeting: () => `Hi ${OZ_ME?.firstName||'there'}! 👋 Ask about your bookings, pay, shift steps, or reports.`,
-  quickReplies: ["📅 My Bookings","💰 My Pay","⚡ Active Shift","📝 Submit report"],
+// ── CHATBOT ────────────────────────────────────────────────────
+// Knowledge base for the promoter — chatbot.js reads window.OZ_CHAT_KB
+window.OZ_CHAT_KB = {
+  greeting: () => `Hi ${OZ_ME?.firstName || 'there'}! 👋 Ask me about your bookings, pay, shift steps, or reports.`,
+  quickReplies: ['📅 My Bookings', '💰 My Pay', '⚡ Active Shift', '📝 Submit report'],
+  routes: [
+    { keywords: ['booking','offer','job'],              key: 'booking',  page: 'mybookings' },
+    { keywords: ['pay','earn','money','rate','salary'],  key: 'pay',      page: 'mypay'      },
+    { keywords: ['shift','check in','checkout','step'],  key: 'shift',    page: 'myshift'    },
+    { keywords: ['photo','picture','upload','image'],    key: 'photo',    page: 'myshift'    },
+    { keywords: ['report','feedback','form'],            key: 'report',   page: 'myshift'    },
+    { keywords: ['accept','decline','respond'],          key: 'accept',   page: 'mybookings' },
+    { keywords: ['dashboard','home','overview'],         key: 'default',  page: 'dashboard'  },
+  ],
   responses: {
-    "booking":  "Go to **My Bookings** to view and respond to your shift offers.",
-    "pay":      () => `Your rate is **R${window.SETTINGS?.hourlyRate||45}/hr** — **R${(window.SETTINGS?.hourlyRate||45)*(window.SETTINGS?.shiftHours||8)}** per shift.`,
-    "shift":    "Go to **Active Shift ⚡** — follow the 4 steps: Check In → Photos → Report → Check Out.",
-    "photo":    () => `Upload at least **${window.SETTINGS?.minPhotosPerShift||10} photos** in Active Shift Step 2.`,
-    "report":   "Submit your Feedback Report in **Active Shift** Step 3 before checking out.",
-    "accept":   "In **My Bookings**, find the pending offer and tap **Accept**. You can't accept two shifts on the same day.",
-    "decline":  "In **My Bookings**, find the pending offer and tap **Decline**.",
-    "default":  "I can help with bookings, shifts, photos, reports, and pay. What do you need?"
-  }
+    booking: 'Go to **My Bookings** 📅 to view and respond to your job offers.',
+    pay:     () => `Your rate is **R${window.SETTINGS?.hourlyRate || 45}/hr** — **R${(window.SETTINGS?.hourlyRate || 45) * (window.SETTINGS?.shiftHours || 8)}** per shift. Go to **My Pay** to see your full history.`,
+    shift:   'Go to **Active Shift ⚡** and follow the 4 steps: Check In → Photos → Report → Check Out.',
+    photo:   () => `Upload at least **${window.SETTINGS?.minPhotosPerShift || 10} photos** in Active Shift Step 2. Tap each empty slot to upload.`,
+    report:  'Submit your Feedback Report in **Active Shift** Step 3. It must be done before you can check out.',
+    accept:  'In **My Bookings**, find the pending offer and tap **Accept**. First to confirm gets the spot.',
+    decline: 'In **My Bookings**, find the offer and tap **Decline**. It moves to your history.',
+    default: 'I can help with bookings, shifts, photos, reports, and pay. What do you need?',
+  },
 };
-function toggleChat(){chatOpen=!chatOpen;document.getElementById('chat-panel').classList.toggle('open',chatOpen);document.getElementById('chat-badge').style.display='none';if(chatOpen&&document.getElementById('chat-messages').children.length===0){addBot(typeof KB.greeting==='function'?KB.greeting():KB.greeting);setQR(KB.quickReplies);}}
-function addBot(text,delay=0){const msgs=document.getElementById('chat-messages');if(delay>0){const t=document.createElement('div');t.className='chat-msg bot';t.innerHTML='<div class="chat-typing"><span></span><span></span><span></span></div>';t.id='typ';msgs.appendChild(t);msgs.scrollTop=msgs.scrollHeight;setTimeout(()=>{document.getElementById('typ')?.remove();appendBot(text);},delay);}else appendBot(text);}
-function appendBot(text){const msgs=document.getElementById('chat-messages'),el=document.createElement('div');el.className='chat-msg bot';const resolved=typeof text==='function'?text():text;el.innerHTML=`<div class="chat-bubble">${resolved.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><div class="chat-time">${new Date().toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'})}</div>`;msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;}
-function setQR(chips){document.getElementById('chat-qr').innerHTML=chips.map(c=>`<span class="qr-chip" onclick="handleQR('${c}')">${c}</span>`).join('');}
-function handleQR(text){document.getElementById('chat-qr').innerHTML='';sendMsg(text);}
-function sendChat(){const i=document.getElementById('chat-input'),t=i.value.trim();if(!t)return;i.value='';sendMsg(t);}
-function sendMsg(text){
-  const msgs=document.getElementById('chat-messages'),el=document.createElement('div');el.className='chat-msg user';
-  el.innerHTML=`<div class="chat-bubble">${text}</div><div class="chat-time">${new Date().toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'})}</div>`;
-  msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;
-  const q=text.toLowerCase();let r=null;
-  if(q.includes('booking')){r=KB.responses['booking'];setTimeout(()=>showPage('mybookings'),1200);}
-  else if(q.includes('pay')||q.includes('earn')){r=KB.responses['pay'];setTimeout(()=>showPage('mypay'),1200);}
-  else if(q.includes('shift')||q.includes('check')){r=KB.responses['shift'];setTimeout(()=>showPage('myshift'),1200);}
-  else if(q.includes('photo')){r=KB.responses['photo'];setTimeout(()=>showPage('myshift'),1200);}
-  else if(q.includes('report')){r=KB.responses['report'];setTimeout(()=>showPage('myshift'),1200);}
-  else{for(const[k,v]of Object.entries(KB.responses)){if(k!=='default'&&q.includes(k)){r=v;break;}}}
-  if(!r)r=KB.responses['default'];
-  addBot(r,750);
-  setTimeout(()=>setQR(["📅 My Bookings","💰 My Pay","⚡ Active Shift","📝 Report"]),900);
-}
 
 // ── BOOT ──────────────────────────────────────────────────────
 boot();

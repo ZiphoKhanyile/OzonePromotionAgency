@@ -301,6 +301,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="javascript/supabase.js"></script>
+<script src="javascript/chatbot.js"></script>
 <script src="javascript/auth-session.js"></script>
 <script src="javascript/index.js"></script>
 <script src="javascript/bookings-modals.js"></script>
@@ -395,140 +396,261 @@ function showPage(id) {
 }
 
 // ── DASHBOARD ────────────────────────────────────────────────
-function renderDashboard() {
-  const p = window.APPLICATIONS.filter(a => a.status === 'pending').length;
+async function renderDashboard() {
+  const el  = document.getElementById('page-dashboard');
+  const db  = window.supabaseClient;
+  const S   = window.SETTINGS;
+  const sym = S.currencySymbol || 'R';
+  const today = new Date().toISOString().split('T')[0];
+  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
+  const weekAgoStr = weekAgo.toISOString().split('T')[0];
 
-  document.getElementById('page-dashboard').innerHTML = `
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading dashboard…</div>`;
+
+  // ── Fetch everything in parallel ─────────────────────────────
+  const [
+    { data: dbBookings    },
+    { data: dbAttendance  },
+    { data: dbReports     },
+    { data: dbInvoices    },
+    { data: dbPromoters   },
+    { data: dbApplications},
+    { data: dbDeliveries  },
+  ] = await Promise.all([
+    db.from('bookings').select(`
+      id, ref_number, shift_date, shift_slot, status, created_at,
+      promoter:promoter_id(first_name,last_name),
+      store:store_id(name,retailer,branch),
+      product:product_id(name,brand)
+    `).order('created_at',{ascending:false}).limit(200),
+
+    db.from('attendance_logs').select(`
+      id, checked_in_at, checked_out_at, status, photo_count,
+      promoter:promoter_id(first_name,last_name),
+      store:store_id(name,retailer,branch)
+    `).order('checked_in_at',{ascending:false}).limit(100),
+
+    db.from('shift_reports').select(`
+      id, submitted_at, rating,
+      promoter:promoter_id(first_name,last_name)
+    `).order('submitted_at',{ascending:false}).limit(50),
+
+    db.from('invoices').select('id,invoice_number,amount_zar,status,invoice_date,due_date,client_name')
+      .order('invoice_date',{ascending:false}).limit(100),
+
+    db.from('users').select('id,first_name,last_name,is_active')
+      .eq('role','promoter'),
+
+    db.from('applications').select('id,status,first_name,last_name,applied_at')
+      .order('applied_at',{ascending:false}).limit(100),
+
+    db.from('stock_deliveries').select('id,delivery_date,quantity_delivered,quantity_used,quantity_returned,store:store_id(name,retailer,branch)')
+      .order('delivery_date',{ascending:false}).limit(50),
+  ]);
+
+  const bookings     = dbBookings     || [];
+  const attendance   = dbAttendance   || [];
+  const reports      = dbReports      || [];
+  const invoices     = dbInvoices     || [];
+  const promoters    = dbPromoters    || [];
+  const applications = dbApplications || [];
+  const deliveries   = dbDeliveries   || [];
+
+  // ── KPIs ─────────────────────────────────────────────────────
+  const upcomingJobs    = bookings.filter(b => b.shift_date >= today && (b.status==='confirmed'||b.status==='pending'));
+  const pendingOffers   = bookings.filter(b => b.status==='pending' && b.shift_date>=today);
+  const todayJobs       = bookings.filter(b => b.shift_date===today && b.status==='confirmed');
+  const activePromoters = promoters.filter(p => p.is_active);
+  const pendingApps     = applications.filter(a => a.status==='pending');
+  const paidRev         = invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+  const outstandingRev  = invoices.filter(i=>i.status==='outstanding'||i.status==='overdue').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+  const overdueInvoices = invoices.filter(i=>(i.status==='outstanding'||i.status==='overdue')&&i.due_date&&i.due_date<today);
+  const thisWeekShifts  = bookings.filter(b=>b.shift_date>=weekAgoStr&&b.shift_date<=today&&(b.status==='confirmed'||b.status==='completed'));
+  const totalScans      = attendance.length;
+  const completeScans   = attendance.filter(a=>a.status==='complete'||a.status==='checked_out').length;
+  const attendanceRate  = totalScans ? Math.round((completeScans/totalScans)*100) : 0;
+
+  // ── Build unified activity feed ───────────────────────────────
+  const events = [];
+
+  attendance.slice(0,15).forEach(a => {
+    const name  = a.promoter ? `${a.promoter.first_name} ${a.promoter.last_name}` : '—';
+    const store = a.store ? (a.store.retailer ? `${a.store.retailer} — ${a.store.branch}` : a.store.name) : '—';
+    if (a.checked_out_at) events.push({ ts: new Date(a.checked_out_at), icon:'✅', text:`${name} checked out from ${store}`, color:'var(--oz-green)' });
+    if (a.checked_in_at)  events.push({ ts: new Date(a.checked_in_at),  icon:'📍', text:`${name} checked in at ${store}`,    color:'var(--oz-accent)' });
+  });
+
+  reports.slice(0,8).forEach(r => {
+    const name = r.promoter ? `${r.promoter.first_name} ${r.promoter.last_name}` : '—';
+    events.push({ ts: new Date(r.submitted_at), icon:'📝', text:`${name} submitted shift report`, color:'var(--oz-accent2)' });
+  });
+
+  bookings.slice(0,10).forEach(b => {
+    const name  = b.promoter ? `${b.promoter.first_name} ${b.promoter.last_name}` : '—';
+    const store = b.store ? (b.store.retailer ? `${b.store.retailer} — ${b.store.branch}` : b.store.name) : '—';
+    if (b.status==='confirmed') events.push({ ts: new Date(b.created_at), icon:'📬', text:`${name} accepted offer for ${store} on ${b.shift_date}`, color:'var(--oz-green)' });
+    if (b.status==='declined')  events.push({ ts: new Date(b.created_at), icon:'❌', text:`${name} declined offer for ${store}`, color:'var(--oz-red)' });
+  });
+
+  applications.slice(0,5).forEach(a => {
+    events.push({ ts: new Date(a.applied_at), icon:'🙋', text:`New application from ${a.first_name} ${a.last_name}`, color:'var(--oz-accent3)' });
+  });
+
+  invoices.filter(i=>i.status==='paid').slice(0,5).forEach(i => {
+    events.push({ ts: new Date(i.invoice_date), icon:'💰', text:`${i.invoice_number} paid — ${sym}${parseFloat(i.amount_zar||0).toLocaleString()} from ${i.client_name}`, color:'var(--oz-green)' });
+  });
+
+  // Sort newest first, take top 10
+  events.sort((a,b) => b.ts - a.ts);
+  const feed = events.slice(0,10);
+
+  // ── Time formatter ─────────────────────────────────────────────
+  function timeAgo(ts) {
+    const diff = Math.floor((Date.now()-ts.getTime())/1000);
+    if (diff <    60) return 'Just now';
+    if (diff <  3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    if (diff < 172800) return 'Yesterday';
+    return ts.toLocaleDateString('en-ZA',{day:'numeric',month:'short'});
+  }
+
+  // ── Needs attention items ─────────────────────────────────────
+  const attention = [];
+
+  if (pendingApps.length) {
+    attention.push({ icon:'📋', color:'var(--oz-accent3)', title:`${pendingApps.length} pending application${pendingApps.length!==1?'s':''}`, sub:`Awaiting your review`, action:`showPage('applications')`, actionLabel:'Review →' });
+  }
+  if (pendingOffers.length) {
+    attention.push({ icon:'⏳', color:'var(--oz-accent)', title:`${pendingOffers.length} offer${pendingOffers.length!==1?'s':''} awaiting promoter response`, sub:`Promoters haven't accepted or declined yet`, action:`showPage('bookings')`, actionLabel:'View offers →' });
+  }
+  if (overdueInvoices.length) {
+    attention.push({ icon:'🧾', color:'var(--oz-red)', title:`${overdueInvoices.length} overdue invoice${overdueInvoices.length!==1?'s':''}`, sub:`${sym}${overdueInvoices.reduce((s,i)=>s+parseFloat(i.amount_zar||0),0).toLocaleString()} past due date`, action:`showPage('invoices')`, actionLabel:'View invoices →' });
+  }
+  if (attendanceRate < 90 && totalScans > 0) {
+    attention.push({ icon:'📍', color:'var(--oz-accent3)', title:`Attendance rate at ${attendanceRate}%`, sub:`Below 90% target — ${totalScans-completeScans} incomplete shift${totalScans-completeScans!==1?'s':''}`, action:`showPage('attendance')`, actionLabel:'View attendance →' });
+  }
+  if (todayJobs.length) {
+    attention.push({ icon:'⚡', color:'var(--oz-green)', title:`${todayJobs.length} activation${todayJobs.length!==1?'s':''} happening today`, sub:todayJobs.map(b=>b.store?(b.store.retailer?`${b.store.retailer} — ${b.store.branch}`:b.store.name):'—').join(', '), action:`showPage('storeqr')`, actionLabel:'View QR codes →' });
+  }
+  if (!attention.length) {
+    attention.push({ icon:'✅', color:'var(--oz-green)', title:'Everything looks good!', sub:'No outstanding items require attention right now.', action:null });
+  }
+
+  // ── Upcoming shifts (next 5) ──────────────────────────────────
+  const upcomingDisplay = bookings
+    .filter(b => b.shift_date >= today && b.status==='confirmed')
+    .sort((a,b) => a.shift_date.localeCompare(b.shift_date))
+    .slice(0,5);
+
+  // ── Render ────────────────────────────────────────────────────
+  const managerName = document.getElementById('sb-name')?.textContent?.split(' ')?.[0] || 'Manager';
+
+  el.innerHTML = `
   <div class="page-header">
     <div class="page-header-left">
-      <h1>Welcome back, Nomsa 👋</h1>
-      <p>${new Date().toLocaleDateString('en-ZA',{
-        weekday:'long',
-        year:'numeric',
-        month:'long',
-        day:'numeric'
-      })}</p>
+      <h1>Welcome back, ${managerName} 👋</h1>
+      <p>${new Date().toLocaleDateString('en-ZA',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost btn-sm" onclick="renderDashboard()">↻ Refresh</button>
+      <button class="btn btn-accent" onclick="openJobOfferModal()">+ Post Job Offer</button>
     </div>
   </div>
 
-  <div class="stats-grid">
-
-    <div class="stat-card" style="--accent-color:var(--oz-accent)">
-      <div class="stat-label">Active Bookings</div>
-      <div class="stat-value">12</div>
-      <div class="stat-sub">3 this week</div>
-      <div class="stat-icon">📅</div>
-    </div>
-
-    <div class="stat-card" style="--accent-color:var(--oz-green)">
-      <div class="stat-label">Active Promoters</div>
-      <div class="stat-value">4</div>
-      <div class="stat-sub">1 inactive</div>
-      <div class="stat-icon">👥</div>
-    </div>
-
-    <div class="stat-card" style="--accent-color:var(--oz-accent2)">
-      <div class="stat-label">Pending Applications</div>
-      <div class="stat-value" style="color:${p > 0 ? 'var(--oz-accent3)' : 'inherit'}">
-        ${p}
-      </div>
-      <div class="stat-sub">
-        <a onclick="showPage('applications')"
-           style="color:var(--oz-accent);cursor:pointer;font-size:.72rem">
-           Review now →
-        </a>
-      </div>
-      <div class="stat-icon">📋</div>
-    </div>
-
+  <!-- KPI strip -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+       gap:0;border:1px solid var(--oz-border);border-radius:var(--r-lg);
+       overflow:hidden;margin-bottom:1.4rem;background:var(--oz-border)">
+    ${[
+      [upcomingJobs.length,       'Upcoming Jobs',      'var(--oz-accent)',  `showPage('bookings')`],
+      [todayJobs.length,          "Today's Activations",'var(--oz-green)',   `showPage('storeqr')`],
+      [activePromoters.length,    'Active Promoters',   'var(--oz-accent2)', `showPage('promoters')`],
+      [pendingApps.length,        'Pending Applications',pendingApps.length>0?'var(--oz-accent3)':'var(--oz-dim)', `showPage('applications')`],
+      [sym+paidRev.toLocaleString(), 'Revenue Collected','var(--oz-green)',  `showPage('invoices')`],
+      [overdueInvoices.length>0 ? sym+outstandingRev.toLocaleString() : sym+'0', 'Outstanding', overdueInvoices.length>0?'var(--oz-red)':'var(--oz-dim)', `showPage('invoices')`],
+    ].map(([val,label,col,action])=>`
+    <div onclick="${action}" style="background:var(--oz-surface);padding:1rem 1.1rem;
+         text-align:center;cursor:pointer;transition:background .15s"
+         onmouseover="this.style.background='var(--oz-surface2)'"
+         onmouseout="this.style.background='var(--oz-surface)'">
+      <div style="font-family:var(--font-h);font-size:1.5rem;font-weight:800;
+           color:${col};line-height:1">${val}</div>
+      <div style="font-size:.67rem;text-transform:uppercase;letter-spacing:.7px;
+           color:var(--oz-dim);margin-top:4px">${label}</div>
+    </div>`).join('')}
   </div>
 
   <div class="two-col">
 
+    <!-- Activity feed -->
     <div class="card">
-      <div class="card-title">Recent Activity</div>
-
-      <div class="timeline">
-
-        <div class="timeline-item">
-          <div class="timeline-time">Today 09:02</div>
-          <div style="font-size:.84rem">
-            Zanele Dlamini checked in at Clicks Gateway
-          </div>
+      <div class="card-title">Live Activity Feed</div>
+      ${feed.length ? feed.map(e=>`
+      <div class="timeline-item" style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--oz-border)">
+        <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.05);
+             display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">${e.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.82rem;color:var(--oz-text);line-height:1.4">${e.text}</div>
+          <div style="font-size:.7rem;color:var(--oz-dim);margin-top:2px">${timeAgo(e.ts)}</div>
         </div>
-
-        <div class="timeline-item">
-          <div class="timeline-time">Today 08:45</div>
-          <div style="font-size:.84rem">
-            Booking B005 sent to Zanele Dlamini
-          </div>
-        </div>
-
-        <div class="timeline-item">
-          <div class="timeline-time">Yesterday 17:05</div>
-          <div style="font-size:.84rem">
-            Sipho Mokoena submitted feedback report
-          </div>
-        </div>
-
-        <div class="timeline-item">
-          <div class="timeline-time">Yesterday 16:00</div>
-          <div style="font-size:.84rem">
-            Invoice INV-2025-082 marked paid
-          </div>
-        </div>
-
-        <div class="timeline-item">
-          <div class="timeline-time">2 days ago</div>
-          <div style="font-size:.84rem">
-            New application from Lerato Mokoena
-          </div>
-        </div>
-
-      </div>
+      </div>`).join('') : `
+      <div style="text-align:center;padding:2rem;color:var(--oz-dim);font-size:.84rem">
+        No recent activity yet.
+      </div>`}
     </div>
 
-    <div class="card">
+    <!-- Right column -->
+    <div style="display:flex;flex-direction:column;gap:1rem">
 
-      <div class="card-title">Needs Attention</div>
-
-      <div class="notif-item pending">
-        <div class="notif-dot" style="background:var(--oz-accent3)"></div>
-        <div>
-          <b>Booking Response Overdue</b><br>
-          <span style="font-size:.78rem;color:var(--oz-muted)">
-            Sipho Mokoena hasn't responded to B002
-          </span>
-        </div>
+      <!-- Needs attention -->
+      <div class="card">
+        <div class="card-title">Needs Attention</div>
+        ${attention.map(a=>`
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;
+             border-bottom:1px solid var(--oz-border)">
+          <div style="width:30px;height:30px;border-radius:50%;
+               background:rgba(255,255,255,.04);border:1px solid var(--oz-border);
+               display:flex;align-items:center;justify-content:center;
+               font-size:.95rem;flex-shrink:0">${a.icon}</div>
+          <div style="flex:1">
+            <div style="font-size:.83rem;font-weight:600;color:${a.color}">${a.title}</div>
+            <div style="font-size:.75rem;color:var(--oz-muted);margin-top:1px">${a.sub}</div>
+            ${a.action ? `<a onclick="${a.action}" style="font-size:.72rem;color:var(--oz-accent);cursor:pointer;margin-top:2px;display:inline-block">${a.actionLabel}</a>` : ''}
+          </div>
+        </div>`).join('')}
       </div>
 
-      <div class="notif-item pending">
-        <div class="notif-dot" style="background:var(--oz-accent2)"></div>
-        <div>
-          <b>${p} Pending Application${p !== 1 ? 's' : ''}</b><br>
-          <span style="font-size:.78rem;color:var(--oz-muted)">
-            <a onclick="showPage('applications')"
-               style="color:var(--oz-accent);cursor:pointer">
-               Review now →
-            </a>
-          </span>
-        </div>
-      </div>
-
-      <div class="notif-item alert">
-        <div class="notif-dot" style="background:var(--oz-red)"></div>
-        <div>
-          <b>Invoice Overdue</b><br>
-          <span style="font-size:.78rem;color:var(--oz-muted)">
-            INV-2025-085 — Clicks Gateway
-          </span>
-        </div>
+      <!-- Upcoming activations -->
+      <div class="card">
+        <div class="card-title">Next Activations</div>
+        ${upcomingDisplay.length ? upcomingDisplay.map(b=>{
+          const name  = b.promoter ? `${b.promoter.first_name} ${b.promoter.last_name}` : '—';
+          const store = b.store ? (b.store.retailer ? `${b.store.retailer} — ${b.store.branch}` : b.store.name) : '—';
+          const camp  = b.product ? (b.product.brand ? `${b.product.brand} — ${b.product.name}` : b.product.name) : '—';
+          const isToday = b.shift_date === today;
+          const isTom   = b.shift_date === new Date(Date.now()+86400000).toISOString().split('T')[0];
+          const dayLabel = isToday ? `<span style="color:var(--oz-accent);font-weight:700">Today</span>` : isTom ? `<span style="color:var(--oz-green)">Tomorrow</span>` : b.shift_date;
+          return `
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
+               border-bottom:1px solid var(--oz-border)">
+            <div style="min-width:52px;text-align:center;background:var(--oz-surface2);
+                 border-radius:var(--r);padding:5px 6px;flex-shrink:0">
+              <div style="font-family:var(--font-h);font-size:1.1rem;font-weight:800;line-height:1">${new Date(b.shift_date).getDate()}</div>
+              <div style="font-size:.6rem;color:var(--oz-muted);text-transform:uppercase">${new Date(b.shift_date).toLocaleDateString('en-ZA',{month:'short'})}</div>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${store}</div>
+              <div style="font-size:.73rem;color:var(--oz-accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${camp}</div>
+              <div style="font-size:.71rem;color:var(--oz-muted)">👤 ${name} · ${dayLabel}</div>
+            </div>
+          </div>`;
+        }).join('') : `<div style="text-align:center;padding:1.5rem;color:var(--oz-dim);font-size:.84rem">No upcoming activations. <a onclick="openJobOfferModal()" style="color:var(--oz-accent);cursor:pointer">Post one →</a></div>`}
+        ${upcomingDisplay.length ? `<a onclick="showPage('bookings')" style="font-size:.76rem;color:var(--oz-accent);cursor:pointer;display:block;margin-top:.75rem">View all job offers →</a>` : ''}
       </div>
 
     </div>
-
-  </div>
-  `;
+  </div>`;
 }
 
 // ── BOOKINGS ──────────────────────────────────────────────────
@@ -3044,74 +3166,328 @@ async function toggleCampaignStatus(id, current) {
 }
 
 // ── BUSINESS INTELLIGENCE ─────────────────────────────────────
-function renderBI() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  document.getElementById('page-bi').innerHTML = `
+async function renderBI() {
+  const S   = window.SETTINGS;
+  const sym = S.currencySymbol;
+  const el  = document.getElementById('page-bi');
+  const period = window.bi_period || '6m';
+
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading intelligence…</div>`;
+
+  const db = window.supabaseClient;
+
+  // ── Period boundary ──────────────────────────────────────────
+  const now   = new Date();
+  const since = new Date();
+  if      (period === '7d')  since.setDate(now.getDate() - 7);
+  else if (period === '4w')  since.setDate(now.getDate() - 28);
+  else if (period === '3m')  since.setMonth(now.getMonth() - 3);
+  else if (period === '6m')  since.setMonth(now.getMonth() - 6);
+  else if (period === '12m') since.setMonth(now.getMonth() - 12);
+  else                       since.setFullYear(2000); // all
+  const sinceStr = since.toISOString().split('T')[0];
+
+  // ── Live data ─────────────────────────────────────────────────
+  const [
+    { data: dbBookings   },
+    { data: dbAttendance },
+    { data: dbReports    },
+    { data: dbInvoices   },
+    { data: dbPromoters  },
+  ] = await Promise.all([
+    db.from('bookings').select('id,shift_date,status,hourly_rate_zar,shift_hours,promoter:promoter_id(first_name,last_name)').gte('shift_date', sinceStr),
+    db.from('attendance_logs').select('id,checked_in_at,status,photo_count,promoter:promoter_id(first_name,last_name)').gte('checked_in_at', sinceStr+'T00:00:00'),
+    db.from('shift_reports').select('rating,submitted_at,promoter:promoter_id(first_name,last_name)').gte('submitted_at', sinceStr+'T00:00:00'),
+    db.from('invoices').select('amount_zar,vat_zar,status,invoice_date').gte('invoice_date', sinceStr),
+    db.from('users').select('id,first_name,last_name,promoter_profiles(total_shifts,region)').eq('role','promoter').eq('is_active',true),
+  ]);
+
+  const bookings   = dbBookings   || [];
+  const attendance = dbAttendance || [];
+  const reports    = dbReports    || [];
+  const invoices   = dbInvoices   || [];
+  const promoters  = dbPromoters  || [];
+
+  // ── KPIs ─────────────────────────────────────────────────────
+  const paidRevenue    = invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+  const outstandingRev = invoices.filter(i=>i.status==='outstanding'||i.status==='overdue').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+  const totalScans     = attendance.length;
+  const completeScans  = attendance.filter(a=>a.status==='complete'||a.status==='checked_out').length;
+  const attendanceRate = totalScans ? Math.round((completeScans/totalScans)*100) : 0;
+  const avgPhotos      = attendance.length ? (attendance.reduce((s,a)=>s+(a.photo_count||0),0)/attendance.length).toFixed(1) : '0';
+  const avgRating      = reports.length ? (reports.reduce((s,r)=>s+(r.rating||0),0)/reports.length).toFixed(1) : '—';
+  const totalRevenue   = paidRevenue + outstandingRev;
+
+  // ── Revenue by interval ───────────────────────────────────────
+  // Decide granularity based on period
+  const useWeeks = period === '7d' || period === '4w';
+  const bucketCount = period==='7d'?7 : period==='4w'?4 : period==='3m'?3 : period==='6m'?6 : period==='12m'?12 : 6;
+  const revLabels = [], revData = [];
+
+  for (let i = bucketCount-1; i >= 0; i--) {
+    let label, from, to;
+    if (useWeeks && period === '7d') {
+      // Last 7 days — one bar per day
+      const d = new Date(); d.setDate(d.getDate()-i);
+      label = d.toLocaleDateString('en-ZA',{weekday:'short'});
+      from  = new Date(d); from.setHours(0,0,0,0);
+      to    = new Date(d); to.setHours(23,59,59,999);
+    } else if (period === '4w') {
+      // Last 4 weeks — one bar per week
+      const wEnd = new Date(); wEnd.setDate(wEnd.getDate() - (i*7));
+      const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate()-6);
+      label = `Wk ${bucketCount-i}`;
+      from = wStart; to = wEnd;
+    } else {
+      // Monthly buckets
+      const d = new Date(); d.setMonth(d.getMonth()-i);
+      label = d.toLocaleDateString('en-ZA',{month:'short', year:'2-digit'});
+      from  = new Date(d.getFullYear(), d.getMonth(), 1);
+      to    = new Date(d.getFullYear(), d.getMonth()+1, 0);
+    }
+    revLabels.push(label);
+    revData.push(invoices.filter(inv=>{
+      const id = new Date(inv.invoice_date);
+      return id>=from && id<=to;
+    }).reduce((s,inv)=>s+parseFloat(inv.amount_zar||0),0));
+  }
+
+  // ── Promoter stats ────────────────────────────────────────────
+  const promoNames = promoters.map(p => p.first_name+' '+p.last_name);
+  const promoShifts = promoters.map(p => p.promoter_profiles?.[0]?.total_shifts || 0);
+  const promoAttRate = promoters.map(p => {
+    const name = p.first_name+' '+p.last_name;
+    const mine = attendance.filter(a => a.promoter ? a.promoter.first_name+' '+a.promoter.last_name===name : false);
+    if (!mine.length) return 0;
+    return Math.round((mine.filter(a=>a.status==='complete'||a.status==='checked_out').length/mine.length)*100);
+  });
+  const topIdx    = promoShifts.indexOf(Math.max(...(promoShifts.length?promoShifts:[0])));
+  const topPromo  = promoNames[topIdx] || '—';
+  const topShifts = promoShifts[topIdx] || 0;
+
+  // ── Booking status breakdown ──────────────────────────────────
+  const bkStatuses   = ['confirmed','pending','declined','completed','cancelled'];
+  const bkStatusCols = ['rgba(16,185,129,.8)','rgba(245,158,11,.8)','rgba(239,68,68,.8)','rgba(0,212,255,.8)','rgba(100,116,139,.6)'];
+  const bkStatusData = bkStatuses.map(s=>bookings.filter(b=>b.status===s).length);
+
+  // ── Top stores ────────────────────────────────────────────────
+  const storeCounts = {};
+  bookings.forEach(b => {
+    const s = b.store || '—';
+    const name = typeof s==='object' ? (s.retailer?s.retailer+' — '+s.branch:s.name) : s;
+    storeCounts[name] = (storeCounts[name]||0)+1;
+  });
+  const topStores = Object.entries(storeCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  // ── Rating buckets ────────────────────────────────────────────
+  const ratingBuckets = {Excellent:0,Good:0,Average:0,'Below Avg':0};
+  reports.forEach(r=>{
+    const rv=r.rating;
+    if(typeof rv==='number'){if(rv>=5)ratingBuckets['Excellent']++;else if(rv>=4)ratingBuckets['Good']++;else if(rv>=3)ratingBuckets['Average']++;else ratingBuckets['Below Avg']++;}
+    else if(typeof rv==='string'&&ratingBuckets[rv]!==undefined)ratingBuckets[rv]++;
+  });
+
+  // ── Revenue trend label ───────────────────────────────────────
+  const lastTwo  = revData.slice(-2);
+  const revTrend = lastTwo[1]>lastTwo[0]
+    ? `↑ Up ${lastTwo[0]?Math.round(((lastTwo[1]-lastTwo[0])/lastTwo[0])*100):100}% vs previous`
+    : lastTwo[1]<lastTwo[0]
+    ? `↓ Down ${lastTwo[0]?Math.round(((lastTwo[0]-lastTwo[1])/lastTwo[0])*100):0}% vs previous`
+    : 'Steady vs previous period';
+
+  // ── Period label helper ───────────────────────────────────────
+  const periodLabel = {
+    '7d':'Last 7 Days','4w':'Last 4 Weeks','3m':'Last 3 Months',
+    '6m':'Last 6 Months','12m':'Last 12 Months','all':'All Time'
+  }[period]||period;
+
+  // ── Render ────────────────────────────────────────────────────
+  el.innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Business Intelligence</h1><p>Revenue trends, performance, and predictive insights</p></div>
-    <div class="page-header-actions">${OZ.periodTabsHtml('bi','renderBI()')}</div>
+    <div class="page-header-left">
+      <h1>Business Intelligence</h1>
+      <p>Live data · ${periodLabel}</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-ghost btn-sm" onclick="renderBI()" title="Refresh">↻</button>
+    </div>
   </div>
-  <div class="kpi-row">
-    <div class="kpi-card" style="--kpi-color:var(--oz-accent)"><div class="kpi-val">${sym}17,000</div><div class="kpi-label">Revenue (Month)</div><div class="kpi-change kpi-up">↑ 12% vs last month</div></div>
-    <div class="kpi-card" style="--kpi-color:var(--oz-green)"><div class="kpi-val">47</div><div class="kpi-label">Shifts Completed</div><div class="kpi-change kpi-up">↑ 8% vs last month</div></div>
-    <div class="kpi-card" style="--kpi-color:var(--oz-accent3)"><div class="kpi-val">94%</div><div class="kpi-label">Attendance Rate</div><div class="kpi-change kpi-up">↑ 3% vs last month</div></div>
-    <div class="kpi-card" style="--kpi-color:var(--oz-pink)"><div class="kpi-val">11.2</div><div class="kpi-label">Avg Photos/Shift</div><div class="kpi-change kpi-up">↑ Above min (${S.minPhotosPerShift})</div></div>
-    <div class="kpi-card" style="--kpi-color:var(--oz-red)"><div class="kpi-val">${sym}6,300</div><div class="kpi-label">Outstanding</div><div class="kpi-change kpi-down">↓ 2 invoices unpaid</div></div>
-    <div class="kpi-card" style="--kpi-color:var(--oz-accent2)"><div class="kpi-val">4.3★</div><div class="kpi-label">Avg Shift Rating</div><div class="kpi-change kpi-up">↑ Based on reports</div></div>
+
+  <!-- Period filter tabs -->
+  <div style="display:flex;gap:0;background:var(--oz-surface2);border:1px solid var(--oz-border);
+       border-radius:var(--r);overflow:hidden;margin-bottom:1.4rem;width:fit-content">
+    ${[['7d','7 Days'],['4w','4 Weeks'],['3m','3 Months'],['6m','6 Months'],['12m','12 Months'],['all','All Time']].map(([v,l])=>`
+    <button onclick="window.bi_period='${v}';renderBI()"
+      style="padding:7px 15px;border:none;cursor:pointer;font-family:var(--font-b);
+             font-size:.8rem;white-space:nowrap;transition:all .15s;
+             background:${period===v?'rgba(0,212,255,.12)':'transparent'};
+             color:${period===v?'var(--oz-accent)':'var(--oz-dim)'};
+             border-bottom:${period===v?'2px solid var(--oz-accent)':'2px solid transparent'}">
+      ${l}
+    </button>`).join('')}
   </div>
+
+  <!-- KPI strip — no cards, just numbers in a row -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+       gap:0;border:1px solid var(--oz-border);border-radius:var(--r-lg);
+       overflow:hidden;margin-bottom:1.4rem;background:var(--oz-border)">
+    ${[
+      [sym+paidRevenue.toLocaleString(), 'Collected',        'var(--oz-green)'],
+      [sym+outstandingRev.toLocaleString(),'Outstanding',    'var(--oz-red)'  ],
+      [bookings.filter(b=>b.status==='confirmed'||b.status==='completed').length, 'Activations', 'var(--oz-accent)'],
+      [attendanceRate+'%',  'Attendance',      attendanceRate>=90?'var(--oz-green)':'var(--oz-accent3)'],
+      [avgPhotos,           'Avg Photos',      parseFloat(avgPhotos)>=S.minPhotosPerShift?'var(--oz-green)':'var(--oz-accent3)'],
+      [avgRating+(avgRating!=='—'?'★':''), 'Avg Rating', 'var(--oz-accent2)'],
+    ].map(([val,label,col])=>`
+    <div style="background:var(--oz-surface);padding:1rem 1.1rem;text-align:center">
+      <div style="font-family:var(--font-h);font-size:1.5rem;font-weight:800;color:${col};line-height:1">${val}</div>
+      <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.8px;color:var(--oz-dim);margin-top:4px">${label}</div>
+    </div>`).join('')}
+  </div>
+
+  <!-- ROW 1: Revenue + Booking status -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Monthly Revenue (${sym})</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-revenue"></canvas></div>
-      <div class="bi-insight-box"><div class="bi-i-label">Insight</div><div class="bi-i-text">June on track to be the strongest month YTD. Projected end-of-month: ${sym}21,000 — a 12% increase over May.</div></div>
+      <div class="bi-chart-title">📈 Revenue (${sym}) — ${periodLabel}</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-revenue"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Trend</div>
+        <div class="bi-i-text">${revTrend}. Total invoiced: ${sym}${totalRevenue.toLocaleString()}.</div>
+      </div>
     </div>
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Shifts Per Promoter</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-shifts"></canvas></div>
-      <div class="bi-insight-box"><div class="bi-i-label">Insight</div><div class="bi-i-text">Ayanda Nkosi leads with 31 shifts. Bongani Cele (9 shifts) is underutilised — consider more bookings in his region.</div></div>
+      <div class="bi-chart-title">📅 Job Offer Status</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-bkstatus"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Summary</div>
+        <div class="bi-i-text">${bookings.filter(b=>b.status==='confirmed').length} confirmed · ${bookings.filter(b=>b.status==='pending').length} awaiting · ${bookings.filter(b=>b.status==='declined').length} declined.</div>
+      </div>
     </div>
   </div>
+
+  <!-- ROW 2: Shifts per promoter + Attendance -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Attendance Rate by Promoter (%)</div>
-      <div class="chart-wrap" style="height:200px"><canvas id="chart-attendance"></canvas></div>
+      <div class="bi-chart-title">👥 Shifts Per Promoter</div>
+      <div class="chart-wrap" style="height:190px"><canvas id="chart-shifts"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Top performer</div>
+        <div class="bi-i-text">${topPromo} — ${topShifts} shift${topShifts!==1?'s':''}.</div>
+      </div>
     </div>
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Invoice Status Breakdown</div>
-      <div class="chart-wrap" style="height:200px"><canvas id="chart-invoices"></canvas></div>
+      <div class="bi-chart-title">📍 Attendance Rate by Promoter (%)</div>
+      <div class="chart-wrap" style="height:190px"><canvas id="chart-attendance"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Overall</div>
+        <div class="bi-i-text">${attendanceRate}% · ${attendanceRate<90?'⚠️ Below 90% target.':'✅ Above 90% target.'}</div>
+      </div>
     </div>
   </div>
+
+  <!-- ROW 3: Invoices + Ratings -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Stock Levels Across Stores (%)</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-stock"></canvas></div>
-      <div class="bi-insight-box"><div class="bi-i-label">Predictive Alert</div><div class="bi-i-text">At current depletion rate, Checkers La Lucia will run out of Aqua Mist in ~3 days. Reorder recommended.</div></div>
+      <div class="bi-chart-title">🧾 Invoice Breakdown (${sym})</div>
+      <div class="chart-wrap" style="height:180px"><canvas id="chart-invoices"></canvas></div>
     </div>
     <div class="bi-chart-card">
-      <div class="bi-chart-title">Report Rating Distribution</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="chart-ratings"></canvas></div>
+      <div class="bi-chart-title">⭐ Report Ratings</div>
+      <div class="chart-wrap" style="height:180px"><canvas id="chart-ratings"></canvas></div>
     </div>
   </div>
+
+  <!-- ROW 4: Top stores bar list -->
   <div class="bi-chart-card" style="margin-bottom:1rem">
-    <div class="bi-chart-title">Weekly Shift Activity — Last 6 Weeks</div>
-    <div class="chart-wrap" style="height:180px"><canvas id="chart-weekly"></canvas></div>
-    <div class="bi-insight-box"><div class="bi-i-label">Trend</div><div class="bi-i-text">Shift volume is growing week-on-week. If the trend continues, you'll need 1–2 additional promoters by end of July.</div></div>
+    <div class="bi-chart-title">🏪 Top Stores by Activations — ${periodLabel}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:.5rem">
+      ${topStores.length ? topStores.map(([store,count],i)=>{
+        const max  = topStores[0][1]||1;
+        const pct  = Math.round((count/max)*100);
+        const cols = ['var(--oz-accent)','var(--oz-green)','var(--oz-accent2)','var(--oz-accent3)','var(--oz-pink)'];
+        return `
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:4px">
+            <span style="color:var(--oz-text);font-weight:${i===0?700:400}">${store}</span>
+            <span style="color:var(--oz-muted)">${count} activation${count!==1?'s':''}</span>
+          </div>
+          <div style="height:7px;background:var(--oz-surface2);border-radius:4px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${cols[i]};border-radius:4px;transition:width .5s"></div>
+          </div>
+        </div>`;
+      }).join('') : `<div style="color:var(--oz-dim);font-size:.84rem;padding:.75rem 0">No activation data for this period.</div>`}
+    </div>
   </div>`;
 
+  // ── Draw charts ───────────────────────────────────────────────
   setTimeout(() => {
-    const grid='rgba(255,255,255,.05)',txt='rgba(136,153,187,.8)',accent='rgba(0,212,255,.75)',green='rgba(16,185,129,.75)',amber='rgba(245,158,11,.75)',red='rgba(239,68,68,.75)',purple='rgba(124,58,237,.75)';
-    const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:grid},ticks:{color:txt,font:{size:11}}},y:{grid:{color:grid},ticks:{color:txt,font:{size:11}}}}};
-    biCharts.revenue  = new Chart(document.getElementById('chart-revenue'),{type:'bar',data:{labels:['Jan','Feb','Mar','Apr','May','Jun'],datasets:[{data:[8500,11200,9800,13400,15200,17000],backgroundColor:['rgba(255,255,255,.06)','rgba(255,255,255,.06)','rgba(255,255,255,.06)','rgba(255,255,255,.06)','rgba(255,255,255,.06)',accent],borderRadius:4}]},options:{...base}});
-    biCharts.shifts   = new Chart(document.getElementById('chart-shifts'),{type:'bar',data:{labels:['Zanele','Sipho','Ayanda','Thandeka','Bongani'],datasets:[{data:[24,18,31,15,9],backgroundColor:[accent,green,amber,purple,red],borderRadius:4}]},options:{...base}});
-    biCharts.attendance=new Chart(document.getElementById('chart-attendance'),{type:'bar',data:{labels:['Zanele','Sipho','Ayanda','Thandeka','Bongani'],datasets:[{data:[100,95,90,100,80],backgroundColor:[green,green,amber,green,red],borderRadius:4}]},options:{...base,scales:{...base.scales,y:{...base.scales.y,max:110}}}});
-    const paid=window.INVOICES.filter(i=>i.status==='paid').reduce((s,i)=>s+i.amount,0);
-    const outs=window.INVOICES.filter(i=>i.status==='outstanding').reduce((s,i)=>s+i.amount,0);
-    biCharts.invoices = new Chart(document.getElementById('chart-invoices'),{type:'doughnut',data:{labels:['Paid','Outstanding'],datasets:[{data:[paid,outs],backgroundColor:[green,red],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}},cutout:'65%'}});
-    biCharts.stock    = new Chart(document.getElementById('chart-stock'),{type:'bar',data:{labels:window.STOCK.map(s=>s.store.split('—')[0].trim()),datasets:[{data:window.STOCK.map(s=>Math.round((s.qty/s.par)*100)),backgroundColor:window.STOCK.map(s=>{const p=Math.round((s.qty/s.par)*100);return p>60?green:p>20?amber:red;}),borderRadius:4}]},options:{...base,scales:{...base.scales,y:{...base.scales.y,max:110}}}});
-    biCharts.ratings  = new Chart(document.getElementById('chart-ratings'),{type:'pie',data:{labels:['Excellent','Good','Average'],datasets:[{data:[3,2,0],backgroundColor:[green,accent,amber],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}}}});
-    biCharts.weekly   = new Chart(document.getElementById('chart-weekly'),{type:'line',data:{labels:['Wk 1','Wk 2','Wk 3','Wk 4','Wk 5','Wk 6'],datasets:[{data:[6,8,7,9,10,11],borderColor:accent,backgroundColor:'rgba(0,212,255,.08)',fill:true,tension:.4,pointBackgroundColor:accent,pointRadius:4}]},options:{...base}});
+    const grid   = 'rgba(255,255,255,.05)';
+    const txt    = 'rgba(136,153,187,.8)';
+    const accent = 'rgba(0,212,255,.75)';
+    const green  = 'rgba(16,185,129,.75)';
+    const amber  = 'rgba(245,158,11,.75)';
+    const red    = 'rgba(239,68,68,.75)';
+    const purple = 'rgba(124,58,237,.75)';
+
+    const base = {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid:{color:grid}, ticks:{color:txt,font:{size:11}} },
+        y: { grid:{color:grid}, ticks:{color:txt,font:{size:11}} },
+      },
+    };
+
+    // Revenue
+    biCharts.revenue = new Chart(document.getElementById('chart-revenue'), {
+      type: 'bar',
+      data: { labels: revLabels, datasets: [{ data: revData, backgroundColor: revData.map((_,i)=>i===revData.length-1?accent:'rgba(255,255,255,.06)'), borderRadius:4 }] },
+      options: { ...base, plugins:{...base.plugins, tooltip:{callbacks:{label:ctx=>`${sym}${ctx.raw.toLocaleString()}`}}} },
+    });
+
+    // Booking status doughnut
+    biCharts.bkstatus = new Chart(document.getElementById('chart-bkstatus'), {
+      type: 'doughnut',
+      data: { labels: bkStatuses, datasets: [{ data: bkStatusData, backgroundColor: bkStatusCols, borderWidth: 0 }] },
+      options: { responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}} },
+    });
+
+    // Shifts per promoter
+    const shiftCols = [accent,green,amber,purple,red,'rgba(249,115,22,.75)'];
+    biCharts.shifts = new Chart(document.getElementById('chart-shifts'), {
+      type: 'bar',
+      data: { labels: promoNames.map(n=>n.split(' ')[0]), datasets: [{ data: promoShifts, backgroundColor: shiftCols.slice(0,promoNames.length), borderRadius:4 }] },
+      options: { ...base },
+    });
+
+    // Attendance rate
+    biCharts.attendance = new Chart(document.getElementById('chart-attendance'), {
+      type: 'bar',
+      data: { labels: promoNames.map(n=>n.split(' ')[0]), datasets: [{ data: promoAttRate, backgroundColor: promoAttRate.map(r=>r>=90?green:r>=70?amber:red), borderRadius:4 }] },
+      options: { ...base, scales:{...base.scales, y:{...base.scales.y, max:110, ticks:{...base.scales.y.ticks,callback:v=>v+'%'}}} },
+    });
+
+    // Invoice doughnut
+    const invPaid  = invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+    const invOut   = invoices.filter(i=>i.status==='outstanding'||i.status==='overdue').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+    const invDraft = invoices.filter(i=>i.status==='draft'||i.status==='sent').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
+    biCharts.invoices = new Chart(document.getElementById('chart-invoices'), {
+      type: 'doughnut',
+      data: { labels:['Paid','Outstanding','Draft'], datasets:[{data:[invPaid,invOut,invDraft],backgroundColor:[green,red,amber],borderWidth:0}] },
+      options: { responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}},tooltip:{callbacks:{label:ctx=>`${sym}${ctx.raw.toLocaleString()}`}}} },
+    });
+
+    // Ratings pie
+    biCharts.ratings = new Chart(document.getElementById('chart-ratings'), {
+      type: 'pie',
+      data: { labels: Object.keys(ratingBuckets), datasets:[{data:Object.values(ratingBuckets),backgroundColor:[green,accent,amber,red],borderWidth:0}] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}} },
+    });
+
   }, 80);
 }
+
 
 // ── SETTINGS — Supabase connected ─────────────────────────────
 
@@ -3337,46 +3713,39 @@ async function applyAccent(c) {
 }
 
 // ── CHATBOT ────────────────────────────────────────────────────
-let chatOpen = false;
-const KB = {
-  greeting: "Hi Nomsa! 👋 I'm here to help you navigate the system. Ask about bookings, applications, stock, invoices, or settings.",
-  quickReplies: ["📅 Create booking","📊 BI Dashboard","📋 Pending applications","📦 Stock levels","⚙️ Settings"],
+// ── CHATBOT ────────────────────────────────────────────────────
+// Knowledge base for the manager — chatbot.js reads window.OZ_CHAT_KB
+window.OZ_CHAT_KB = {
+  greeting: 'Hi! 👋 I can help you navigate the system. Ask about bookings, applications, stock, invoices, or settings.',
+  quickReplies: ['📅 Bookings', '📊 BI Dashboard', '📋 Applications', '📦 Stock', '⚙️ Settings'],
+  routes: [
+    { keywords: ['booking','job offer','activation'],  key: 'booking',     page: 'bookings'     },
+    { keywords: ['bi','intelligence','chart','graph'],  key: 'bi',          page: 'bi'           },
+    { keywords: ['application','applicant','approve'],  key: 'application', page: 'applications' },
+    { keywords: ['setting','rate','photo','shift rule'],key: 'setting',     page: 'settings'     },
+    { keywords: ['stock','delivery','inventory'],       key: 'stock',       page: 'stock'        },
+    { keywords: ['invoice','bill','payment'],           key: 'invoice',     page: 'invoices'     },
+    { keywords: ['promoter','team','roster'],           key: 'promoter',    page: 'promoters'    },
+    { keywords: ['report','feedback'],                  key: 'report',      page: 'reports'      },
+    { keywords: ['qr','scan','check-in','checkin'],     key: 'qr',          page: 'storeqr'      },
+    { keywords: ['photo','picture','image'],            key: 'photo',       page: 'photos'       },
+    { keywords: ['dashboard','overview','home'],        key: 'dashboard',   page: 'dashboard'    },
+  ],
   responses: {
-    "booking":     "Go to **Bookings** in the sidebar to manage assignments. Click **+ New Booking** to create one.",
-    "bi":          "The **Business Intelligence** page shows revenue trends, promoter performance, stock, and invoice charts.",
-    "dashboard":   "The **Dashboard** gives a quick overview of bookings, pending applications, low stock, and recent activity.",
-    "application": "Go to **Applications** to review, approve or decline promoter applications.",
-    "stock":       "Check **Stock Management** for inventory levels across all stores.",
-    "invoice":     "Go to **Invoices** to view, generate, and mark invoices paid.",
-    "promoter":    "See **Promoters** for your full team roster, earnings, and status.",
-    "setting":     "Go to **Settings** to configure pay rates, shift rules, notifications, and stores.",
-    "report":      "**Feedback Reports** shows all shift reports submitted by promoters.",
-    "qr":          "Go to **Store QR Codes** to view and print check-in codes for each store.",
-    "default":     "I can help navigate the manager system. Try asking about bookings, stock, invoices, BI, applications, or settings."
-  }
+    booking:     'Go to **Bookings** to manage job offers. Click **+ Post Job Offer** to create one.',
+    bi:          'The **Business Intelligence** page shows revenue trends, promoter performance, and stock charts.',
+    dashboard:   'The **Dashboard** gives a quick overview of upcoming jobs, pending applications, and alerts.',
+    application: 'Go to **Applications** to review, approve or decline promoter applications.',
+    stock:       'Go to **Stock** to log deliveries per store, track usage, and view history.',
+    invoice:     'Go to **Invoices** to create and manage billing for each activation.',
+    promoter:    'See **Promoters** for your full team roster, earnings, and province breakdown.',
+    setting:     'Go to **Settings** to configure pay rates, shift rules, stores, and notifications.',
+    report:      '**Feedback Reports** shows all shift reports submitted by promoters.',
+    qr:          'Go to **Store QR Codes** to generate and download check-in codes per activation.',
+    photo:       'Go to **Photos** to view all interaction photos submitted per promoter per shift.',
+    default:     'I can help with bookings, stock, invoices, applications, promoters, or settings. What do you need?',
+  },
 };
-function toggleChat(){chatOpen=!chatOpen;document.getElementById('chat-panel').classList.toggle('open',chatOpen);document.getElementById('chat-badge').style.display='none';if(chatOpen&&document.getElementById('chat-messages').children.length===0){addBot(KB.greeting);setQR(KB.quickReplies);}}
-function addBot(text,delay=0){const msgs=document.getElementById('chat-messages');if(delay>0){const t=document.createElement('div');t.className='chat-msg bot';t.innerHTML='<div class="chat-typing"><span></span><span></span><span></span></div>';t.id='typ';msgs.appendChild(t);msgs.scrollTop=msgs.scrollHeight;setTimeout(()=>{document.getElementById('typ')?.remove();appendBot(text);},delay);}else appendBot(text);}
-function appendBot(text){const msgs=document.getElementById('chat-messages'),el=document.createElement('div');el.className='chat-msg bot';el.innerHTML=`<div class="chat-bubble">${text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</div><div class="chat-time">${new Date().toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'})}</div>`;msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;}
-function setQR(chips){document.getElementById('chat-qr').innerHTML=chips.map(c=>`<span class="qr-chip" onclick="handleQR('${c}')">${c}</span>`).join('');}
-function handleQR(text){document.getElementById('chat-qr').innerHTML='';sendMsg(text);}
-function sendChat(){const i=document.getElementById('chat-input'),t=i.value.trim();if(!t)return;i.value='';sendMsg(t);}
-function sendMsg(text){
-  const msgs=document.getElementById('chat-messages'),el=document.createElement('div');el.className='chat-msg user';
-  el.innerHTML=`<div class="chat-bubble">${text}</div><div class="chat-time">${new Date().toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'})}</div>`;
-  msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;
-  const q=text.toLowerCase();let r=null;
-  if(q.includes('booking')){r=KB.responses['booking'];setTimeout(()=>showPage('bookings'),1200);}
-  else if(q.includes('bi')||q.includes('intelligence')){r=KB.responses['bi'];setTimeout(()=>showPage('bi'),1200);}
-  else if(q.includes('application')){r=KB.responses['application'];setTimeout(()=>showPage('applications'),1200);}
-  else if(q.includes('setting')){r=KB.responses['setting'];setTimeout(()=>showPage('settings'),1200);}
-  else if(q.includes('stock')){r=KB.responses['stock'];setTimeout(()=>showPage('stock'),1200);}
-  else if(q.includes('invoice')){r=KB.responses['invoice'];setTimeout(()=>showPage('invoices'),1200);}
-  else{for(const[k,v]of Object.entries(KB.responses)){if(k!=='default'&&q.includes(k)){r=v;break;}}}
-  if(!r)r=KB.responses['default'];
-  addBot(r,750);
-  setTimeout(()=>setQR(["📅 Bookings","📊 BI Dashboard","📋 Applications","⚙️ Settings"]),900);
-}
 
 // ── BOOT ──────────────────────────────────────────────────────
 (async () => {
