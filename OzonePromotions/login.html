@@ -40,6 +40,7 @@ body { display:flex; align-items:stretch; min-height:100vh; }
 .apply-box { background:var(--oz-card); border:1px solid var(--oz-border2); border-radius:var(--r-lg); padding:1.4rem 1.6rem; }
 .apply-box-title { font-family:var(--font-h); font-size:.88rem; font-weight:700; margin-bottom:.3rem; }
 .apply-box-sub   { font-size:.78rem; color:var(--oz-muted); margin-bottom:.85rem; }
+body { display:flex; flex-direction:row; }
 @media(max-width:860px){ .login-right{display:none;} .login-left{padding:2rem;} }
 </style>
 </head>
@@ -60,16 +61,43 @@ body { display:flex; align-items:stretch; min-height:100vh; }
       <label>Email Address</label>
       <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email">
     </div>
-    <div class="form-group">
+  <div class="form-group">
       <label>Password</label>
-      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
-             onkeydown="if(event.key==='Enter')doLogin()">
+      <div style="position:relative">
+        <input type="password" id="login-password" placeholder="••••••••"
+               autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doLogin()"
+               style="width:100%;padding-right:42px">
+        <button type="button" onclick="togglePw()" id="pw-eye"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                 background:none;border:none;cursor:pointer;color:var(--oz-dim);
+                 font-size:1rem;padding:4px;line-height:1">👁</button>
+      </div>
     </div>
+
+   <div style="text-align:right;margin-top:-.5rem;margin-bottom:1rem">
+      <a onclick="showForgotPassword()" style="font-size:.78rem;color:var(--oz-accent);cursor:pointer;text-decoration:none">Forgot password?</a>
+    </div>
+
     <button class="btn-primary" onclick="doLogin()">Sign In →</button>
 
     <div class="auth-link">New promoter? <a href="index.html">Apply here</a></div>
-  </div>
-</div>
+
+    <div id="forgot-panel" style="display:none;margin-top:1.2rem;background:var(--oz-surface2);border:1px solid var(--oz-border2);border-radius:var(--r);padding:1rem 1.1rem">
+      <div style="font-weight:600;font-size:.88rem;margin-bottom:.4rem">Reset your password</div>
+      <div style="font-size:.78rem;color:var(--oz-muted);margin-bottom:.75rem">Enter your email and we'll send you a reset link.</div>
+      <div class="form-group" style="margin-bottom:.65rem">
+        <input type="email" id="forgot-email" placeholder="your@email.com">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-accent" onclick="sendResetEmail()" style="flex:1">Send Reset Link</button>
+        <button class="btn btn-ghost" onclick="hideForgotPassword()">Cancel</button>
+      </div>
+      <div id="forgot-msg" style="display:none;margin-top:.65rem;font-size:.78rem"></div>
+    </div>
+
+  </div><!-- closes form-wrap -->
+</div><!-- closes login-left -->
 
 <div class="login-right">
   <div class="rrc">
@@ -113,6 +141,141 @@ body { display:flex; align-items:stretch; min-height:100vh; }
 <script src="javascript/supabase.js"></script>
 <script src="javascript/index.js"></script>
 <script>
+
+
+
+
+
+
+
+
+// ── HANDLE PASSWORD RESET REDIRECT ───────────────────────────
+(async () => {
+  const hash   = window.location.hash;
+  const params = new URLSearchParams(hash.replace('#', '?'));
+  const type   = params.get('type');
+  const token  = params.get('access_token');
+
+  if (type === 'recovery' && token) {
+    // Set the session from the token in the URL
+    const { error } = await window.supabaseClient.auth.setSession({
+      access_token:  token,
+      refresh_token: params.get('refresh_token') || '',
+    });
+    if (!error) {
+      // Show a new password form
+      showNewPasswordForm();
+    }
+  }
+})();
+
+function showNewPasswordForm() {
+  document.querySelector('.form-title').textContent = 'Set New Password';
+  document.querySelector('.form-sub').textContent   = 'Enter and confirm your new password.';
+  document.getElementById('login-email').closest('.form-group').style.display    = 'none';
+  document.getElementById('login-password').closest('.form-group').style.display = 'none';
+  document.querySelector('[onclick="doLogin()"]').style.display                  = 'none';
+  document.querySelector('.auth-link').style.display                             = 'none';
+
+  const formWrap = document.querySelector('.form-wrap');
+  const resetForm = document.createElement('div');
+  resetForm.innerHTML = `
+    <div class="form-group">
+      <label>New Password</label>
+      <div style="position:relative">
+        <input type="password" id="new-password" placeholder="Min. 8 characters" style="width:100%;padding-right:42px">
+        <button type="button" onclick="toggleNewPw()"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                 background:none;border:none;cursor:pointer;color:var(--oz-dim);font-size:1rem;padding:4px">👁</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <input type="password" id="confirm-password" placeholder="Repeat password">
+    </div>
+    <div id="reset-error" style="display:none;color:var(--oz-red);font-size:.8rem;margin-bottom:.75rem"></div>
+    <button class="btn-primary" onclick="saveNewPassword()">Save New Password →</button>`;
+  formWrap.appendChild(resetForm);
+}
+
+function toggleNewPw() {
+  const inp = document.getElementById('new-password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function saveNewPassword() {
+  const pw      = document.getElementById('new-password').value;
+  const confirm = document.getElementById('confirm-password').value;
+  const errEl   = document.getElementById('reset-error');
+
+  if (pw.length < 8)    { errEl.style.display='block'; errEl.textContent='Password must be at least 8 characters.'; return; }
+  if (!/[A-Z]/.test(pw)){ errEl.style.display='block'; errEl.textContent='Password must contain at least one uppercase letter.'; return; }
+  if (!/[0-9]/.test(pw)){ errEl.style.display='block'; errEl.textContent='Password must contain at least one number.'; return; }
+  if (pw !== confirm)    { errEl.style.display='block'; errEl.textContent='Passwords do not match.'; return; }
+
+  const { error } = await window.supabaseClient.auth.updateUser({ password: pw });
+  if (error) { errEl.style.display='block'; errEl.textContent=error.message; return; }
+
+  document.querySelector('.form-title').textContent = '✅ Password Updated!';
+  document.querySelector('.form-sub').textContent   = 'You can now sign in with your new password.';
+  document.querySelector('[onclick="saveNewPassword()"]').closest('div').remove();
+  setTimeout(() => window.location.href = 'login.html', 2500);
+}
+
+// ── PASSWORD EYE TOGGLE ───────────────────────────────────────
+function togglePw() {
+  const inp = document.getElementById('login-password');
+  const eye = document.getElementById('pw-eye');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    eye.textContent = '🙈';
+  } else {
+    inp.type = 'password';
+    eye.textContent = '👁';
+  }
+}
+
+// ── FORGOT PASSWORD ───────────────────────────────────────────
+function showForgotPassword() {
+  const panel = document.getElementById('forgot-panel');
+  panel.style.display = 'block';
+  const email = document.getElementById('login-email').value.trim();
+  if (email) document.getElementById('forgot-email').value = email;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function hideForgotPassword() {
+  document.getElementById('forgot-panel').style.display = 'none';
+  document.getElementById('forgot-msg').style.display   = 'none';
+  document.getElementById('forgot-email').value         = '';
+}
+async function sendResetEmail() {
+  const email  = document.getElementById('forgot-email').value.trim();
+  const msgEl  = document.getElementById('forgot-msg');
+  const btn    = document.querySelector('#forgot-panel .btn-accent');
+  if (!email) {
+    msgEl.style.display = 'block';
+    msgEl.style.color   = 'var(--oz-red)';
+    msgEl.textContent   = 'Please enter your email address.';
+    return;
+  }
+  btn.disabled    = true;
+  btn.textContent = 'Sending…';
+  const { error } = await window.supabaseClient.auth.resetPasswordForEmail(email, {
+  redirectTo: window.location.href.split('?')[0],
+});
+  btn.disabled    = false;
+  btn.textContent = 'Send Reset Link';
+  msgEl.style.display = 'block';
+  if (error) {
+    msgEl.style.color = 'var(--oz-red)';
+    msgEl.textContent = error.message;
+  } else {
+    msgEl.style.color = 'var(--oz-green)';
+    msgEl.textContent = '✅ Reset link sent! Check your inbox (and spam folder).';
+    btn.disabled = true;
+  }
+}
+
 // ── AUTH ──────────────────────────────────────────────────────
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();

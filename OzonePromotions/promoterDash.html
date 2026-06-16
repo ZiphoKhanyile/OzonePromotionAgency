@@ -956,7 +956,31 @@ async function handleQRScan(scannedToken, bookingId) {
     return;
   }
 
-  // ── 6. Write attendance_log row ───────────────────────────────
+// ── 6. Capture GPS coordinates (IoT data point) ───────────────
+  status.innerHTML = `<span style="color:var(--oz-muted)">📡 Capturing GPS location…</span>`;
+
+  let gpsLat = null, gpsLng = null, gpsAccuracy = null;
+
+  try {
+    const position = await new Promise((resolve, reject) => {
+      if (!navigator.geolocation) { reject(new Error('GPS not available')); return; }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      });
+    });
+    gpsLat      = parseFloat(position.coords.latitude.toFixed(7));
+    gpsLng      = parseFloat(position.coords.longitude.toFixed(7));
+    gpsAccuracy = Math.round(position.coords.accuracy);
+    status.innerHTML = `<span style="color:var(--oz-muted)">📍 GPS locked (±${gpsAccuracy}m) · Writing to database…</span>`;
+  } catch (gpsErr) {
+    // GPS failed or denied — still allow check-in, just without coordinates
+    status.innerHTML = `<span style="color:var(--oz-muted)">⚠️ GPS unavailable · Continuing without location…</span>`;
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  // ── 7. Write attendance_log row with IoT data ─────────────────
   const { data: booking } = await db
     .from('bookings')
     .select('store_id')
@@ -966,13 +990,14 @@ async function handleQRScan(scannedToken, bookingId) {
   const { error } = await db
     .from('attendance_logs')
     .insert({
-      booking_id:       bookingId,
-      promoter_id:      OZ_ME.id,
-      store_id:         booking?.store_id || null,
-      checked_in_at:    new Date().toISOString(),
+      booking_id:        bookingId,
+      promoter_id:       OZ_ME.id,
+      store_id:          booking?.store_id || null,
+      checked_in_at:     new Date().toISOString(),
+      checkin_gps_lat:   gpsLat,
+      checkin_gps_lng:   gpsLng,
       checkin_device_id: navigator.userAgent.slice(0, 80),
-      checkin_method:   'qr',
-      status:           'checked_in',
+      status:            'checked_in',
     });
 
   if (error) {
@@ -983,14 +1008,20 @@ async function handleQRScan(scannedToken, bookingId) {
     return;
   }
 
-  // ── 7. Success ────────────────────────────────────────────────
-  status.innerHTML = `
-    <span style="color:var(--oz-green);font-weight:700">
-      ✅ Checked in successfully!
-    </span>`;
+ // ── 8. Success — show IoT confirmation ───────────────────────
+  const gpsLine = gpsLat
+    ? `<div style="font-size:.72rem;color:var(--oz-muted);margin-top:6px;font-family:monospace">
+         📡 ${gpsLat}, ${gpsLng} &nbsp;·&nbsp; ±${gpsAccuracy}m &nbsp;·&nbsp;
+         ${new Date().toLocaleTimeString('en-ZA')}
+       </div>`
+    : '';
 
-  OZ.toast('📍 Check-in recorded!');
-  setTimeout(() => { closeQRScanner(); renderMyShift(); }, 1200);
+  status.innerHTML = `
+    <div style="color:var(--oz-green);font-weight:700">✅ Checked in successfully!</div>
+    <div style="font-size:.76rem;color:var(--oz-muted);margin-top:4px">
+      📲 QR verified &nbsp;·&nbsp; 🕐 ${new Date().toLocaleTimeString('en-ZA')}
+    </div>
+    ${gpsLine}`;
 }
 
 function closeQRScanner() {
@@ -1428,17 +1459,32 @@ async function doCheckout(bookingId, attId) {
   if (!confirmed) return;
 
   const now = new Date().toISOString();
-
+ 
+  // ── 0. Capture checkout GPS ───────────────────────────────────
+  let outLat = null, outLng = null;
+  try {
+    const pos = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject,
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 })
+    );
+    outLat = parseFloat(pos.coords.latitude.toFixed(7));
+    outLng = parseFloat(pos.coords.longitude.toFixed(7));
+  } catch (e) {
+    // GPS unavailable — continue without coordinates
+  }
+ 
   // ── 1. Update attendance_logs ────────────────────────────────
   if (attId) {
     const { error: attErr } = await db
       .from('attendance_logs')
       .update({
-        checked_out_at: now,
-        status:         'checked_out',
+        checked_out_at:  now,
+        checkout_gps_lat: outLat,
+        checkout_gps_lng: outLng,
+        status:          'checked_out',
       })
       .eq('id', attId);
-
+ 
     if (attErr) {
       OZ.toast('❌ Check-out failed: ' + attErr.message);
       return;
@@ -1448,12 +1494,14 @@ async function doCheckout(bookingId, attId) {
     const { error: insErr } = await db
       .from('attendance_logs')
       .insert({
-        booking_id:     bookingId,
-        promoter_id:    OZ_ME.id,
-        store_id:       booking?.store?.id || null,
-        checked_out_at: now,
-        status:         'checked_out',
-        photo_count:    photoCount,
+        booking_id:       bookingId,
+        promoter_id:      OZ_ME.id,
+        store_id:         booking?.store?.id || null,
+        checked_out_at:   now,
+        checkout_gps_lat: outLat,
+        checkout_gps_lng: outLng,
+        status:           'checked_out',
+        photo_count:      photoCount,
       });
     if (insErr) {
       OZ.toast('❌ Check-out failed: ' + insErr.message);

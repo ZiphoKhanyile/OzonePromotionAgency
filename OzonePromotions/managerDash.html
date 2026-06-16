@@ -8,11 +8,83 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+/* ── MANAGER MOBILE ───────────────────────────────────────── */
+.mgr-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 299;
+  background: rgba(0,0,0,.55);
+}
+.mgr-topbar {
+  display: none;
+  position: sticky; top: 0; z-index: 200;
+  background: var(--oz-surface);
+  border-bottom: 1px solid var(--oz-border);
+  align-items: center;
+  padding: .55rem 1rem;
+  gap: .75rem;
+}
+.mgr-hamburger {
+  background: none; border: none; cursor: pointer;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 4px; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.mgr-hamburger span {
+  display: block; width: 22px; height: 2px;
+  background: var(--oz-text); border-radius: 2px;
+  transition: all .22s ease;
+}
+.mgr-hamburger.is-open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.mgr-hamburger.is-open span:nth-child(2) { opacity: 0; }
+.mgr-hamburger.is-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+.mgr-topbar-brand {
+  font-family: var(--font-h); font-size: .95rem; font-weight: 800; flex: 1;
+  background: linear-gradient(135deg, var(--oz-accent), var(--oz-accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.mgr-topbar-user { font-size: .72rem; color: var(--oz-muted); white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.mgr-topbar-signout {
+  background: none; border: 1px solid var(--oz-border2); border-radius: var(--r);
+  color: var(--oz-muted); font-size: .68rem; padding: 5px 9px; cursor: pointer;
+  font-family: var(--font-b); white-space: nowrap; flex-shrink: 0;
+}
+.mgr-topbar-signout:active { color: var(--oz-red); border-color: var(--oz-red); }
+@media (max-width: 768px) {
+  .mgr-topbar  { display: flex; }
+  .mgr-overlay { display: none; } /* shown via JS only */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    z-index: 300;
+    box-shadow: 4px 0 24px rgba(0,0,0,.45);
+  }
+  .sidebar.mob-open { transform: translateX(0); }
+  .main-content {
+    margin-left: 0 !important;
+    padding: 0 0 2rem !important;
+  }
+  .main-content .page { padding: 1rem .9rem 2rem; }
+  .card { padding: .85rem; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .page-header h1 { font-size: 1.15rem; }
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: .6rem; }
+  .stat-card { padding: .75rem; }
+  .two-col, .three-col { grid-template-columns: 1fr; }
+  .form-row, .form-row-3 { grid-template-columns: 1fr; }
+  .table-wrap { font-size: .75rem; }
+  .chat-panel { width: 100%; right: 0; left: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .chat-fab { bottom: 1rem; right: 1rem; }
+}
+</style>
 </head>
 <body>
 
+<!-- SIDEBAR OVERLAY -->
+<div class="mgr-overlay" id="mgr-overlay" onclick="closeMgrSidebar()"></div>
+
 <!-- SIDEBAR -->
-<nav class="sidebar">
+<nav class="sidebar" id="mgr-sidebar">
   <div class="sidebar-brand"><div class="brand">⬡ OZONE</div><div class="sub">Manager Portal</div></div>
   <div class="user-badge">
     <div class="user-avatar avatar-manager" id="sb-av">NK</div>
@@ -21,6 +93,16 @@
   <div id="nav-menu"></div>
   <div class="sidebar-bottom"><button class="btn-logout" onclick="doLogout()">⏻ Sign Out</button></div>
 </nav>
+
+<!-- MOBILE TOP BAR -->
+<div class="mgr-topbar" id="mgr-topbar">
+  <button class="mgr-hamburger" id="mgr-hamburger" onclick="toggleMgrSidebar()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="mgr-topbar-brand">⬡ OZONE</div>
+  <div class="mgr-topbar-user" id="mgr-topbar-user">Manager</div>
+  <button class="mgr-topbar-signout" onclick="doLogout()">⏻ Sign out</button>
+</div>
 
 <!-- MAIN -->
 <main class="main-content">
@@ -320,9 +402,30 @@
   if (stored) {
     const u = JSON.parse(stored);
     document.getElementById('sb-name').textContent = u.name;
+    const mgrUser = document.getElementById('mgr-topbar-user');
+    if (mgrUser) mgrUser.textContent = u.firstName || u.name;
     document.getElementById('sb-av').textContent   = u.initials || u.name.split(' ').map(w=>w[0]).join('');
   }
 })();
+
+// ── MOBILE SIDEBAR ────────────────────────────────────────────
+function toggleMgrSidebar() {
+  const sidebar   = document.getElementById('mgr-sidebar');
+  const overlay   = document.getElementById('mgr-overlay');
+  const hamburger = document.getElementById('mgr-hamburger');
+  const isOpen    = sidebar.classList.contains('mob-open');
+  sidebar.classList.toggle('mob-open', !isOpen);
+  overlay.style.display  = isOpen ? 'none' : 'block';
+  hamburger.classList.toggle('is-open', !isOpen);
+}
+function closeMgrSidebar() {
+  const sidebar   = document.getElementById('mgr-sidebar');
+  const overlay   = document.getElementById('mgr-overlay');
+  const hamburger = document.getElementById('mgr-hamburger');
+  sidebar.classList.remove('mob-open');
+  overlay.style.display = 'none';
+  hamburger.classList.remove('is-open');
+}
 
 function doLogout() {
   // await window.supabaseClient.auth.signOut(); // Supabase signout
@@ -369,14 +472,20 @@ let biCharts = {};
 function showPage(id) {
   Object.values(biCharts).forEach(c=>c&&c.destroy&&c.destroy()); biCharts={};
   // Tear down attendance realtime when leaving the page
+ // Tear down realtime subscriptions when leaving their pages
   if (id !== 'attendance' && _attChannel) {
     window.supabaseClient.removeChannel(_attChannel);
     _attChannel = null;
+  }
+  if (id !== 'dashboard' && _dashChannel) {
+    window.supabaseClient.removeChannel(_dashChannel);
+    _dashChannel = null;
   }
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+id)?.classList.add('active');
   document.getElementById('nav-'+id)?.classList.add('active');
+  closeMgrSidebar();
   const r = {
     dashboard:  renderDashboard,
     bookings:   renderBookings,
@@ -501,9 +610,9 @@ async function renderDashboard() {
     events.push({ ts: new Date(i.invoice_date), icon:'💰', text:`${i.invoice_number} paid — ${sym}${parseFloat(i.amount_zar||0).toLocaleString()} from ${i.client_name}`, color:'var(--oz-green)' });
   });
 
-  // Sort newest first, take top 10
+  // Sort newest first, keep 5
   events.sort((a,b) => b.ts - a.ts);
-  const feed = events.slice(0,10);
+  const feed = events.slice(0, 5);
 
   // ── Time formatter ─────────────────────────────────────────────
   function timeAgo(ts) {
@@ -581,39 +690,47 @@ async function renderDashboard() {
     </div>`).join('')}
   </div>
 
-  <div class="two-col">
+  <div class="two-col" style="align-items:start">
 
     <!-- Activity feed -->
-    <div class="card">
-      <div class="card-title">Live Activity Feed</div>
-      ${feed.length ? feed.map(e=>`
-      <div class="timeline-item" style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--oz-border)">
-        <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.05);
-             display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">${e.icon}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;color:var(--oz-text);line-height:1.4">${e.text}</div>
-          <div style="font-size:.7rem;color:var(--oz-dim);margin-top:2px">${timeAgo(e.ts)}</div>
-        </div>
-      </div>`).join('') : `
-      <div style="text-align:center;padding:2rem;color:var(--oz-dim);font-size:.84rem">
-        No recent activity yet.
-      </div>`}
+    <div class="card" style="min-width:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem">
+        <div class="card-title" style="margin:0">Live Activity Feed</div>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:.7rem;color:var(--oz-green)">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--oz-green);
+            box-shadow:0 0 0 0 rgba(16,185,129,.6);
+            animation:att-pulse 1.8s infinite;display:inline-block"></span>
+          Realtime
+        </span>
+      </div>
+      <div id="dash-feed">
+        ${feed.length ? feed.map(e=>`
+        <div class="timeline-item" style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--oz-border)">
+          <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.05);
+               display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0">${e.icon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.82rem;color:var(--oz-text);line-height:1.4">${e.text}</div>
+            <div style="font-size:.7rem;color:var(--oz-dim);margin-top:2px">${timeAgo(e.ts)}</div>
+          </div>
+        </div>`).join('') : `
+        <div style="text-align:center;padding:2rem;color:var(--oz-dim);font-size:.84rem">
+          No recent activity yet.
+        </div>`}
+      </div>
     </div>
 
     <!-- Right column -->
-    <div style="display:flex;flex-direction:column;gap:1rem">
+    <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
 
       <!-- Needs attention -->
       <div class="card">
         <div class="card-title">Needs Attention</div>
         ${attention.map(a=>`
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;
-             border-bottom:1px solid var(--oz-border)">
-          <div style="width:30px;height:30px;border-radius:50%;
-               background:rgba(255,255,255,.04);border:1px solid var(--oz-border);
-               display:flex;align-items:center;justify-content:center;
-               font-size:.95rem;flex-shrink:0">${a.icon}</div>
-          <div style="flex:1">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--oz-border)">
+          <div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.04);
+               border:1px solid var(--oz-border);display:flex;align-items:center;
+               justify-content:center;font-size:.95rem;flex-shrink:0">${a.icon}</div>
+          <div style="flex:1;min-width:0">
             <div style="font-size:.83rem;font-weight:600;color:${a.color}">${a.title}</div>
             <div style="font-size:.75rem;color:var(--oz-muted);margin-top:1px">${a.sub}</div>
             ${a.action ? `<a onclick="${a.action}" style="font-size:.72rem;color:var(--oz-accent);cursor:pointer;margin-top:2px;display:inline-block">${a.actionLabel}</a>` : ''}
@@ -630,10 +747,12 @@ async function renderDashboard() {
           const camp  = b.product ? (b.product.brand ? `${b.product.brand} — ${b.product.name}` : b.product.name) : '—';
           const isToday = b.shift_date === today;
           const isTom   = b.shift_date === new Date(Date.now()+86400000).toISOString().split('T')[0];
-          const dayLabel = isToday ? `<span style="color:var(--oz-accent);font-weight:700">Today</span>` : isTom ? `<span style="color:var(--oz-green)">Tomorrow</span>` : b.shift_date;
+          const dayLabel = isToday
+            ? `<span style="color:var(--oz-accent);font-weight:700">Today</span>`
+            : isTom ? `<span style="color:var(--oz-green)">Tomorrow</span>`
+            : b.shift_date;
           return `
-          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
-               border-bottom:1px solid var(--oz-border)">
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--oz-border)">
             <div style="min-width:52px;text-align:center;background:var(--oz-surface2);
                  border-radius:var(--r);padding:5px 6px;flex-shrink:0">
               <div style="font-family:var(--font-h);font-size:1.1rem;font-weight:800;line-height:1">${new Date(b.shift_date).getDate()}</div>
@@ -645,12 +764,137 @@ async function renderDashboard() {
               <div style="font-size:.71rem;color:var(--oz-muted)">👤 ${name} · ${dayLabel}</div>
             </div>
           </div>`;
-        }).join('') : `<div style="text-align:center;padding:1.5rem;color:var(--oz-dim);font-size:.84rem">No upcoming activations. <a onclick="openJobOfferModal()" style="color:var(--oz-accent);cursor:pointer">Post one →</a></div>`}
+        }).join('') : `
+        <div style="text-align:center;padding:1.5rem;color:var(--oz-dim);font-size:.84rem">
+          No upcoming activations.
+          <a onclick="openJobOfferModal()" style="color:var(--oz-accent);cursor:pointer">Post one →</a>
+        </div>`}
         ${upcomingDisplay.length ? `<a onclick="showPage('bookings')" style="font-size:.76rem;color:var(--oz-accent);cursor:pointer;display:block;margin-top:.75rem">View all job offers →</a>` : ''}
       </div>
 
     </div>
   </div>`;
+
+  _startDashFeedRealtime();
+}
+
+
+
+
+// ── Dashboard feed helpers ────────────────────────────────────
+let _dashChannel = null;
+
+function _feedTimeAgo(ts) {
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff <    60) return 'Just now';
+  if (diff <  3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 172800) return 'Yesterday';
+  return new Date(ts).toLocaleDateString('en-ZA', { day:'numeric', month:'short' });
+}
+
+function _feedItem({ icon, text, color, ts }) {
+  return `<div class="timeline-item"
+    style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;
+           border-bottom:1px solid var(--oz-border)">
+    <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.05);
+         display:flex;align-items:center;justify-content:center;
+         font-size:.85rem;flex-shrink:0">${icon}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:.82rem;color:var(--oz-text);line-height:1.4">${text}</div>
+      <div style="font-size:.7rem;color:var(--oz-dim);margin-top:2px">${_feedTimeAgo(ts)}</div>
+    </div>
+  </div>`;
+}
+
+function _pushFeedItem(event) {
+  const container = document.getElementById('dash-feed');
+  if (!container) return;
+
+  // Remove empty state if present
+  const empty = container.querySelector('[style*="text-align:center"]');
+  if (empty) empty.remove();
+
+  // Prepend new item with a fade-in flash
+  const div = document.createElement('div');
+  div.innerHTML = _feedItem(event);
+  const node = div.firstElementChild;
+  node.style.background = 'rgba(0,212,255,.07)';
+  node.style.transition  = 'background 1.5s';
+  container.prepend(node);
+  setTimeout(() => { node.style.background = ''; }, 50);
+
+  // Keep only 5 items
+  const items = container.querySelectorAll('.timeline-item');
+  items.forEach((el, i) => { if (i >= 5) el.remove(); });
+}
+
+function _startDashFeedRealtime() {
+  const db = window.supabaseClient;
+  if (_dashChannel) { db.removeChannel(_dashChannel); _dashChannel = null; }
+
+  _dashChannel = db.channel('dash-feed-live')
+
+    // New check-in or checkout
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'attendance_logs'
+    }, async (payload) => {
+      const log = payload.new;
+      if (!log?.booking_id) return;
+      const { data: bk } = await db.from('bookings')
+        .select('promoter:promoter_id(first_name,last_name), store:store_id(name,retailer,branch)')
+        .eq('id', log.booking_id).single();
+      if (!bk) return;
+      const name  = bk.promoter ? `${bk.promoter.first_name} ${bk.promoter.last_name}` : '—';
+      const store = bk.store ? (bk.store.retailer ? `${bk.store.retailer} — ${bk.store.branch}` : bk.store.name) : '—';
+      if (log.checked_out_at && payload.eventType === 'UPDATE') {
+        _pushFeedItem({ icon:'✅', text:`${name} checked out from ${store}`, color:'var(--oz-green)',   ts: log.checked_out_at });
+      } else if (log.checked_in_at && payload.eventType === 'INSERT') {
+        _pushFeedItem({ icon:'📍', text:`${name} checked in at ${store}`,    color:'var(--oz-accent)',  ts: log.checked_in_at  });
+      }
+    })
+
+    // New shift report submitted
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'shift_reports'
+    }, async (payload) => {
+      const rep = payload.new;
+      if (!rep?.promoter_id) return;
+      const { data: u } = await db.from('users')
+        .select('first_name,last_name').eq('id', rep.promoter_id).single();
+      const name = u ? `${u.first_name} ${u.last_name}` : '—';
+      _pushFeedItem({ icon:'📝', text:`${name} submitted a shift report`, color:'var(--oz-accent2)', ts: rep.submitted_at || new Date().toISOString() });
+    })
+
+    // Booking accepted or declined
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'bookings'
+    }, async (payload) => {
+      const bk = payload.new;
+      if (!bk?.promoter_id) return;
+      if (bk.status !== 'confirmed' && bk.status !== 'declined') return;
+      const { data: u } = await db.from('users')
+        .select('first_name,last_name').eq('id', bk.promoter_id).single();
+      const { data: s } = await db.from('stores')
+        .select('name,retailer,branch').eq('id', bk.store_id).single();
+      const name  = u ? `${u.first_name} ${u.last_name}` : '—';
+      const store = s ? (s.retailer ? `${s.retailer} — ${s.branch}` : s.name) : '—';
+      if (bk.status === 'confirmed') {
+        _pushFeedItem({ icon:'📬', text:`${name} accepted offer for ${store}`, color:'var(--oz-green)', ts: new Date().toISOString() });
+      } else {
+        _pushFeedItem({ icon:'❌', text:`${name} declined offer for ${store}`, color:'var(--oz-red)',   ts: new Date().toISOString() });
+      }
+    })
+
+    // New application
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'applications'
+    }, (payload) => {
+      const app = payload.new;
+      _pushFeedItem({ icon:'🙋', text:`New application from ${app.first_name} ${app.last_name}`, color:'var(--oz-accent3)', ts: app.applied_at || new Date().toISOString() });
+    })
+
+    .subscribe();
 }
 
 // ── BOOKINGS ──────────────────────────────────────────────────
@@ -1204,7 +1448,7 @@ async function renderAttendance() {
   if (bookingIds.length) {
     const { data: logs } = await db
       .from('attendance_logs')
-      .select('booking_id, checked_in_at, checked_out_at, status, checkin_device_id')
+      .select('booking_id, checked_in_at, checked_out_at, status, checkin_device_id, checkin_gps_lat, checkin_gps_lng')
       .in('booking_id', bookingIds);
     (logs || []).forEach(l => { logsMap[l.booking_id] = l; });
   }
@@ -1247,7 +1491,9 @@ async function renderAttendance() {
       campaign,
       scanTime,
       outTime,
-      device:    log?.checkin_device_id?.slice(0, 30) || '—',
+       device:    log?.checkin_device_id?.slice(0, 30) || '—',
+      gpsLat:    log?.checkin_gps_lat  || null,
+      gpsLng:    log?.checkin_gps_lng  || null,
       status,
     };
   });
@@ -1353,7 +1599,7 @@ async function renderAttendance() {
 
   <!-- Table -->
   <div class="card"><div class="table-wrap"><table>
-    <thead><tr>
+     <thead><tr>
       <th>Promoter</th>
       <th>Store</th>
       <th>Date</th>
@@ -1361,6 +1607,7 @@ async function renderAttendance() {
       <th>Campaign</th>
       <th>Check In</th>
       <th>Check Out</th>
+      <th>Location</th>
       <th>Status</th>
     </tr></thead>
     <tbody id="att-tbody">
@@ -1382,12 +1629,24 @@ function attRow(r) {
     r.status === 'present'   ? '<span class="badge badge-green">● Present</span>'
   : r.status === 'completed' ? '<span class="badge badge-cyan">✓ Completed</span>'
   :                            '<span class="badge badge-red">✗ Absent</span>';
-
+ 
   const dateStr = r.date
     ? new Date(r.date).toLocaleDateString('en-ZA',
         { day:'numeric', month:'short', year:'numeric' })
     : '—';
-
+ 
+  // GPS cell — show coordinates as placeholder, resolve async via Nominatim
+  let gpsCell = '<span style="color:var(--oz-dim);font-size:.76rem">No GPS</span>';
+  if (r.gpsLat && r.gpsLng) {
+    const lat = parseFloat(r.gpsLat).toFixed(4);
+    const lng = parseFloat(r.gpsLng).toFixed(4);
+    gpsCell = `<span id="gps-${r.bookingId}" style="font-size:.76rem;color:var(--oz-muted)">
+      <span style="color:var(--oz-dim)">⏳ Resolving…</span>
+    </span>`;
+    // Fire and forget — resolves the label after DOM renders
+    _resolveGpsLabel(r.bookingId, r.gpsLat, r.gpsLng);
+  }
+ 
   return `<tr id="att-row-${r.bookingId}">
     <td style="font-weight:600">${r.promoter}</td>
     <td style="font-size:.82rem">${r.store}</td>
@@ -1400,8 +1659,65 @@ function attRow(r) {
     <td style="color:${r.outTime!=='—'?'var(--oz-accent)':'var(--oz-dim)'}">
       ${r.outTime}
     </td>
+    <td>${gpsCell}</td>
     <td>${statusBadge}</td>
   </tr>`;
+}
+ 
+// Reverse-geocode via OpenStreetMap Nominatim (free, no API key)
+// Resolves to nearest suburb, mall, or town and updates the cell
+const _gpsCache = {};
+async function _resolveGpsLabel(bookingId, lat, lng) {
+  const key = `${parseFloat(lat).toFixed(3)},${parseFloat(lng).toFixed(3)}`;
+ 
+  // Use cached result if we already resolved nearby coords
+  if (_gpsCache[key]) {
+    _applyGpsLabel(bookingId, _gpsCache[key], lat, lng);
+    return;
+  }
+ 
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=16&addressdetails=1`;
+    const res  = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const data = await res.json();
+ 
+    const addr  = data.address || {};
+    // Priority: shopping mall > suburb > neighbourhood > village > town > city
+    const label =
+      addr.shop          ||
+      addr.mall          ||
+      addr.retail        ||
+      addr.suburb        ||
+      addr.neighbourhood ||
+      addr.village       ||
+      addr.town          ||
+      addr.city          ||
+      addr.county        ||
+      data.display_name?.split(',')[0] ||
+      'Unknown location';
+ 
+    const city   = addr.city || addr.town || addr.village || '';
+    const full   = city && label !== city ? `${label}, ${city}` : label;
+ 
+    _gpsCache[key] = { label: full, lat, lng };
+    _applyGpsLabel(bookingId, { label: full, lat, lng }, lat, lng);
+  } catch (e) {
+    // Fallback to raw coordinates
+    const cell = document.getElementById(`gps-${bookingId}`);
+    if (cell) cell.innerHTML = `<code style="font-size:.7rem;color:var(--oz-dim)">${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}</code>`;
+  }
+}
+ 
+function _applyGpsLabel(bookingId, cached, lat, lng) {
+  const cell = document.getElementById(`gps-${bookingId}`);
+  if (!cell) return;
+  const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+  cell.innerHTML = `
+    <a href="${mapsUrl}" target="_blank" rel="noopener"
+       style="color:var(--oz-accent);font-size:.78rem;text-decoration:none;display:flex;align-items:center;gap:4px"
+       title="${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}">
+      📍 ${cached.label}
+    </a>`;
 }
 
 function _startAttendanceRealtime() {
@@ -2687,39 +3003,231 @@ async function downloadQRpdf(safeKey, storeName, dateStr, shift, campaign, token
 
 
 // ── PROMOTERS ─────────────────────────────────────────────────
-function renderPromoters() {
-  const S = window.SETTINGS, sym = S.currencySymbol;
-  const search = document.getElementById('pro-search')?.value || '';
-  const regionF = document.getElementById('pro-region')?.value || 'all';
-  let data = window.PROMOTERS;
-  if (search) data = data.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()));
-  if (regionF !== 'all') data = data.filter(p=>p.region===regionF);
-
-  document.getElementById('page-promoters').innerHTML = `
+let _editingPromoter = null; // holds the promoter being edited
+ 
+async function renderPromoters() {
+  const el      = document.getElementById('page-promoters');
+  const search  = document.getElementById('pro-search')?.value  || '';
+  const regionF = document.getElementById('pro-region')?.value  || 'all';
+  const statusF = document.getElementById('pro-status')?.value  || 'active';
+  const db      = window.supabaseClient;
+ 
+  el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
+    <div class="loading-spinner" style="margin:0 auto 1rem"></div>Loading promoters…</div>`;
+ 
+  // Pull users with role=promoter + their promoter_profile
+  let q = db.from('users').select(`
+    id, first_name, last_name, email, phone, is_active, created_at,
+    promoter_profiles(region, experience_band, total_shifts, is_verified, id_number, device_id)
+  `).eq('role', 'promoter').order('first_name');
+ 
+  const { data, error } = await q;
+  if (error) {
+    el.innerHTML = `<div class="card" style="color:var(--oz-red);padding:2rem">⚠ ${error.message}</div>`;
+    return;
+  }
+ 
+  // Client-side filters
+  let rows = data || [];
+  if (search)           rows = rows.filter(p => `${p.first_name} ${p.last_name} ${p.email}`.toLowerCase().includes(search.toLowerCase()));
+  if (statusF === 'active')   rows = rows.filter(p => p.is_active);
+  if (statusF === 'banned')   rows = rows.filter(p => !p.is_active);
+  if (regionF !== 'all')      rows = rows.filter(p => p.promoter_profiles?.[0]?.region === regionF);
+ 
+  const S   = window.SETTINGS;
+  const sym = S.currencySymbol || 'R';
+  const regions = S.regions || ['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape','Limpopo','Mpumalanga','North West','Free State','Northern Cape'];
+ 
+  const active  = (data || []).filter(p => p.is_active).length;
+  const banned  = (data || []).filter(p => !p.is_active).length;
+ 
+  el.innerHTML = `
   <div class="page-header">
-    <div class="page-header-left"><h1>Promoters</h1><p>Active team roster and performance</p></div>
-    <div class="page-header-actions"><button class="btn btn-accent" onclick="OZ.toast('Invite link copied!')">+ Invite Promoter</button></div>
+    <div class="page-header-left"><h1>Promoters</h1><p>Team roster — ${active} active · ${banned} banned</p></div>
   </div>
+ 
   <div class="filter-bar">
     <input type="text" id="pro-search" placeholder="🔍 Search name or email…" value="${search}" oninput="renderPromoters()">
     <select id="pro-region" onchange="renderPromoters()">
       <option value="all"${regionF==='all'?' selected':''}>All Regions</option>
-      ${S.regions.map(r=>`<option${regionF===r?' selected':''}>${r}</option>`).join('')}
+      ${regions.map(r => `<option value="${r}"${regionF===r?' selected':''}>${r}</option>`).join('')}
     </select>
-    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${data.length} promoter${data.length!==1?'s':''}</span>
+    <select id="pro-status" onchange="renderPromoters()">
+      <option value="active"${statusF==='active'?' selected':''}>Active</option>
+      <option value="banned"${statusF==='banned'?' selected':''}>Banned</option>
+      <option value="all"${statusF==='all'?' selected':''}>All</option>
+    </select>
+    <span style="font-size:.78rem;color:var(--oz-muted);margin-left:auto">${rows.length} promoter${rows.length!==1?'s':''}</span>
   </div>
-  <div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Device</th><th>Region</th><th>Shifts</th><th>Earnings</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-  ${data.map(p=>`<tr>
-    <td style="font-weight:600">${p.name}</td>
-    <td style="font-size:.78rem;color:var(--oz-muted)">${p.email}</td>
-    <td style="font-size:.78rem">${p.phone}</td>
-    <td><code style="font-size:.7rem;color:var(--oz-dim)">${p.device}</code></td>
-    <td>${p.region}</td><td>${p.shifts}</td>
-    <td style="color:var(--oz-green);font-weight:600">${sym}${(p.shifts*S.hourlyRate*S.shiftHours).toLocaleString()}</td>
-    <td><span class="badge ${p.status==='active'?'badge-green':'badge-gray'}">${p.status}</span></td>
-    <td><button class="btn btn-sm btn-outline" onclick="OZ.toast('Editing ${p.name}')">Edit</button></td>
-  </tr>`).join('')}
-  </tbody></table></div></div>`;
+ 
+  ${!rows.length ? `
+  <div class="card" style="text-align:center;padding:3rem;color:var(--oz-dim)">
+    <div style="font-size:2rem;margin-bottom:.75rem">👥</div>
+    <div style="font-weight:600">No promoters found</div>
+  </div>` : `
+  <div class="card"><div class="table-wrap"><table>
+    <thead><tr>
+      <th>Name</th><th>Email</th><th>Phone</th><th>Region</th>
+      <th>Experience</th><th>Shifts</th><th>Verified</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    ${rows.map(p => {
+      const profile  = p.promoter_profiles?.[0] || {};
+      const name     = `${p.first_name} ${p.last_name}`;
+      const shifts   = profile.total_shifts || 0;
+      const isBanned = !p.is_active;
+      return `<tr>
+        <td style="font-weight:600">${name}</td>
+        <td style="font-size:.78rem;color:var(--oz-muted)">${p.email}</td>
+        <td style="font-size:.78rem">${p.phone || '—'}</td>
+        <td>${profile.region || '—'}</td>
+        <td style="font-size:.78rem;color:var(--oz-muted)">${profile.experience_band || '—'}</td>
+        <td>${shifts}</td>
+        <td>${profile.is_verified
+          ? '<span class="badge badge-green">✓ Verified</span>'
+          : '<span class="badge badge-gray">Unverified</span>'}</td>
+        <td><span class="badge ${isBanned ? 'badge-red' : 'badge-green'}">${isBanned ? '🚫 Banned' : '● Active'}</span></td>
+        <td>
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-sm btn-ghost" onclick="openEditPromoter('${p.id}')">✏️ Edit</button>
+            ${isBanned
+              ? `<button class="btn btn-sm btn-success" onclick="unbanPromoter('${p.id}','${name}')">✅ Unban</button>`
+              : `<button class="btn btn-sm btn-danger"  onclick="banPromoter('${p.id}','${name}')">🚫 Ban</button>`}
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div></div>`}`;
+ 
+  // Create edit modal once
+  if (!document.getElementById('modal-edit-promoter')) {
+    const m = document.createElement('div');
+    m.className = 'modal-overlay';
+    m.id = 'modal-edit-promoter';
+    m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+    m.innerHTML = `
+      <div class="modal" style="max-width:520px">
+        <h2>✏️ Edit Promoter</h2>
+        <div class="form-row">
+          <div class="form-group"><label>First Name</label><input type="text" id="ep-firstname"></div>
+          <div class="form-group"><label>Last Name</label><input type="text" id="ep-lastname"></div>
+        </div>
+        <div class="form-group"><label>Email</label><input type="email" id="ep-email"></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="ep-phone" placeholder="+27 82 000 0000"></div>
+        <div class="form-divider"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Region</label>
+            <select id="ep-region">
+              ${['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape','Limpopo','Mpumalanga','North West','Free State','Northern Cape']
+                .map(r => `<option value="${r}">${r}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Experience Band</label>
+            <select id="ep-exp">
+              <option>No experience (willing to learn)</option>
+              <option>Less than 1 year</option>
+              <option>1-2 years</option>
+              <option>3+ years</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="display:flex;align-items:center;gap:10px;padding-top:1.5rem">
+            <label class="toggle-wrap"><input type="checkbox" id="ep-verified"><span class="toggle-slider"></span></label>
+            <span style="font-size:.84rem">Mark as Verified</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" onclick="document.getElementById('modal-edit-promoter').classList.remove('open')">Cancel</button>
+          <button class="btn btn-accent" onclick="savePromoterEdit()">💾 Save Changes</button>
+        </div>
+      </div>`;
+    document.body.appendChild(m);
+  }
+}
+ 
+async function openEditPromoter(userId) {
+  const db = window.supabaseClient;
+ 
+  const { data: user } = await db.from('users')
+    .select(`id, first_name, last_name, email, phone,
+      promoter_profiles(region, experience_band, is_verified)`)
+    .eq('id', userId).single();
+ 
+  if (!user) { OZ.toast('Could not load promoter'); return; }
+ 
+  _editingPromoter = user;
+  const profile = user.promoter_profiles?.[0] || {};
+ 
+  document.getElementById('ep-firstname').value  = user.first_name || '';
+  document.getElementById('ep-lastname').value   = user.last_name  || '';
+  document.getElementById('ep-email').value      = user.email      || '';
+  document.getElementById('ep-phone').value      = user.phone      || '';
+  document.getElementById('ep-region').value     = profile.region  || 'KwaZulu-Natal';
+  document.getElementById('ep-exp').value        = profile.experience_band || 'No experience (willing to learn)';
+  document.getElementById('ep-verified').checked = profile.is_verified || false;
+ 
+  document.getElementById('modal-edit-promoter').classList.add('open');
+}
+ 
+async function savePromoterEdit() {
+  if (!_editingPromoter) return;
+  const db = window.supabaseClient;
+ 
+  const firstName = document.getElementById('ep-firstname').value.trim();
+  const lastName  = document.getElementById('ep-lastname').value.trim();
+  const email     = document.getElementById('ep-email').value.trim();
+  const phone     = document.getElementById('ep-phone').value.trim();
+  const region    = document.getElementById('ep-region').value;
+  const exp       = document.getElementById('ep-exp').value;
+  const verified  = document.getElementById('ep-verified').checked;
+ 
+  if (!firstName || !lastName || !email) { OZ.toast('Name and email are required'); return; }
+ 
+  // Update users table
+  const { error: userErr } = await db.from('users').update({
+    first_name: firstName,
+    last_name:  lastName,
+    email,
+    phone:      phone || null,
+  }).eq('id', _editingPromoter.id);
+ 
+  if (userErr) { OZ.toast('❌ ' + userErr.message); return; }
+ 
+  // Update promoter_profiles
+  const { error: ppErr } = await db.from('promoter_profiles').update({
+    region,
+    experience_band: exp,
+    is_verified:     verified,
+  }).eq('user_id', _editingPromoter.id);
+ 
+  if (ppErr) { OZ.toast('❌ ' + ppErr.message); return; }
+ 
+  document.getElementById('modal-edit-promoter').classList.remove('open');
+  OZ.toast(`✅ ${firstName} ${lastName} updated!`);
+  _editingPromoter = null;
+  renderPromoters();
+}
+ 
+async function banPromoter(userId, name) {
+  if (!confirm(`Ban ${name}?\n\nThey will be logged out and unable to sign in until unbanned.`)) return;
+  const { error } = await window.supabaseClient.from('users')
+    .update({ is_active: false }).eq('id', userId);
+  if (error) { OZ.toast('❌ ' + error.message); return; }
+  OZ.toast(`🚫 ${name} has been banned`);
+  renderPromoters();
+}
+ 
+async function unbanPromoter(userId, name) {
+  if (!confirm(`Unban ${name}?\n\nThey will be able to sign in again.`)) return;
+  const { error } = await window.supabaseClient.from('users')
+    .update({ is_active: true }).eq('id', userId);
+  if (error) { OZ.toast('❌ ' + error.message); return; }
+  OZ.toast(`✅ ${name} has been unbanned`);
+  renderPromoters();
 }
 
 // ── APPLICATIONS ──────────────────────────────────────────────
@@ -3167,9 +3675,8 @@ async function toggleCampaignStatus(id, current) {
 
 // ── BUSINESS INTELLIGENCE ─────────────────────────────────────
 async function renderBI() {
-  const S   = window.SETTINGS;
-  const sym = S.currencySymbol;
-  const el  = document.getElementById('page-bi');
+  const S      = window.SETTINGS;
+  const el     = document.getElementById('page-bi');
   const period = window.bi_period || '6m';
 
   el.innerHTML = `<div style="padding:3rem;text-align:center;color:var(--oz-muted)">
@@ -3177,7 +3684,7 @@ async function renderBI() {
 
   const db = window.supabaseClient;
 
-  // ── Period boundary ──────────────────────────────────────────
+  // ── Period boundary ───────────────────────────────────────────
   const now   = new Date();
   const since = new Date();
   if      (period === '7d')  since.setDate(now.getDate() - 7);
@@ -3185,7 +3692,7 @@ async function renderBI() {
   else if (period === '3m')  since.setMonth(now.getMonth() - 3);
   else if (period === '6m')  since.setMonth(now.getMonth() - 6);
   else if (period === '12m') since.setMonth(now.getMonth() - 12);
-  else                       since.setFullYear(2000); // all
+  else                       since.setFullYear(2000);
   const sinceStr = since.toISOString().split('T')[0];
 
   // ── Live data ─────────────────────────────────────────────────
@@ -3193,114 +3700,132 @@ async function renderBI() {
     { data: dbBookings   },
     { data: dbAttendance },
     { data: dbReports    },
-    { data: dbInvoices   },
     { data: dbPromoters  },
   ] = await Promise.all([
-    db.from('bookings').select('id,shift_date,status,hourly_rate_zar,shift_hours,promoter:promoter_id(first_name,last_name)').gte('shift_date', sinceStr),
-    db.from('attendance_logs').select('id,checked_in_at,status,photo_count,promoter:promoter_id(first_name,last_name)').gte('checked_in_at', sinceStr+'T00:00:00'),
-    db.from('shift_reports').select('rating,submitted_at,promoter:promoter_id(first_name,last_name)').gte('submitted_at', sinceStr+'T00:00:00'),
-    db.from('invoices').select('amount_zar,vat_zar,status,invoice_date').gte('invoice_date', sinceStr),
-    db.from('users').select('id,first_name,last_name,promoter_profiles(total_shifts,region)').eq('role','promoter').eq('is_active',true),
+    db.from('bookings')
+      .select('id,shift_date,status,promoter:promoter_id(first_name,last_name)')
+      .gte('shift_date', sinceStr),
+    db.from('attendance_logs')
+      .select('id,checked_in_at,status,photo_count,promoter:promoter_id(first_name,last_name)')
+      .gte('checked_in_at', sinceStr + 'T00:00:00'),
+    db.from('shift_reports')
+      .select('rating,submitted_at,promoter:promoter_id(first_name,last_name)')
+      .gte('submitted_at', sinceStr + 'T00:00:00'),
+    db.from('users')
+      .select('id,first_name,last_name,promoter_profiles(total_shifts,region)')
+      .eq('role', 'promoter')
+      .eq('is_active', true),
   ]);
 
   const bookings   = dbBookings   || [];
   const attendance = dbAttendance || [];
   const reports    = dbReports    || [];
-  const invoices   = dbInvoices   || [];
   const promoters  = dbPromoters  || [];
 
-  // ── KPIs ─────────────────────────────────────────────────────
-  const paidRevenue    = invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
-  const outstandingRev = invoices.filter(i=>i.status==='outstanding'||i.status==='overdue').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
-  const totalScans     = attendance.length;
-  const completeScans  = attendance.filter(a=>a.status==='complete'||a.status==='checked_out').length;
-  const attendanceRate = totalScans ? Math.round((completeScans/totalScans)*100) : 0;
-  const avgPhotos      = attendance.length ? (attendance.reduce((s,a)=>s+(a.photo_count||0),0)/attendance.length).toFixed(1) : '0';
-  const avgRating      = reports.length ? (reports.reduce((s,r)=>s+(r.rating||0),0)/reports.length).toFixed(1) : '—';
-  const totalRevenue   = paidRevenue + outstandingRev;
+  // ── KPIs ──────────────────────────────────────────────────────
+  const totalActivations   = bookings.filter(b => b.status === 'confirmed' || b.status === 'completed').length;
+  const completedShifts    = bookings.filter(b => b.status === 'completed').length;
+  const pendingOffers      = bookings.filter(b => b.status === 'pending').length;
+  const totalScans         = attendance.length;
+  const completeScans      = attendance.filter(a => a.status === 'complete' || a.status === 'checked_out').length;
+  const attendanceRate     = totalScans ? Math.round((completeScans / totalScans) * 100) : 0;
+  const avgPhotos          = attendance.length
+    ? (attendance.reduce((s, a) => s + (a.photo_count || 0), 0) / attendance.length).toFixed(1)
+    : '0';
+  const avgRating          = reports.length
+    ? (reports.reduce((s, r) => s + (r.rating || 0), 0) / reports.length).toFixed(1)
+    : '—';
 
-  // ── Revenue by interval ───────────────────────────────────────
-  // Decide granularity based on period
-  const useWeeks = period === '7d' || period === '4w';
+  // ── Activations over time ─────────────────────────────────────
   const bucketCount = period==='7d'?7 : period==='4w'?4 : period==='3m'?3 : period==='6m'?6 : period==='12m'?12 : 6;
-  const revLabels = [], revData = [];
+  const actLabels = [], actData = [];
 
-  for (let i = bucketCount-1; i >= 0; i--) {
+  for (let i = bucketCount - 1; i >= 0; i--) {
     let label, from, to;
-    if (useWeeks && period === '7d') {
-      // Last 7 days — one bar per day
-      const d = new Date(); d.setDate(d.getDate()-i);
-      label = d.toLocaleDateString('en-ZA',{weekday:'short'});
+    if (period === '7d') {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      label = d.toLocaleDateString('en-ZA', { weekday:'short' });
       from  = new Date(d); from.setHours(0,0,0,0);
       to    = new Date(d); to.setHours(23,59,59,999);
     } else if (period === '4w') {
-      // Last 4 weeks — one bar per week
-      const wEnd = new Date(); wEnd.setDate(wEnd.getDate() - (i*7));
-      const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate()-6);
-      label = `Wk ${bucketCount-i}`;
-      from = wStart; to = wEnd;
+      const wEnd   = new Date(); wEnd.setDate(wEnd.getDate() - (i * 7));
+      const wStart = new Date(wEnd); wStart.setDate(wEnd.getDate() - 6);
+      label = `Wk ${bucketCount - i}`;
+      from  = wStart; to = wEnd;
     } else {
-      // Monthly buckets
-      const d = new Date(); d.setMonth(d.getMonth()-i);
-      label = d.toLocaleDateString('en-ZA',{month:'short', year:'2-digit'});
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      label = d.toLocaleDateString('en-ZA', { month:'short', year:'2-digit' });
       from  = new Date(d.getFullYear(), d.getMonth(), 1);
-      to    = new Date(d.getFullYear(), d.getMonth()+1, 0);
+      to    = new Date(d.getFullYear(), d.getMonth() + 1, 0);
     }
-    revLabels.push(label);
-    revData.push(invoices.filter(inv=>{
-      const id = new Date(inv.invoice_date);
-      return id>=from && id<=to;
-    }).reduce((s,inv)=>s+parseFloat(inv.amount_zar||0),0));
+    actLabels.push(label);
+    actData.push(bookings.filter(b => {
+      const d = new Date(b.shift_date);
+      return d >= from && d <= to && (b.status === 'confirmed' || b.status === 'completed');
+    }).length);
   }
 
+  const lastTwo = actData.slice(-2);
+  const actTrend = lastTwo[1] > lastTwo[0]
+    ? `↑ Up ${lastTwo[0] ? Math.round(((lastTwo[1]-lastTwo[0])/lastTwo[0])*100) : 100}% vs previous`
+    : lastTwo[1] < lastTwo[0]
+    ? `↓ Down ${lastTwo[0] ? Math.round(((lastTwo[0]-lastTwo[1])/lastTwo[0])*100) : 0}% vs previous`
+    : 'Steady vs previous period';
+
   // ── Promoter stats ────────────────────────────────────────────
-  const promoNames = promoters.map(p => p.first_name+' '+p.last_name);
-  const promoShifts = promoters.map(p => p.promoter_profiles?.[0]?.total_shifts || 0);
-  const promoAttRate = promoters.map(p => {
-    const name = p.first_name+' '+p.last_name;
-    const mine = attendance.filter(a => a.promoter ? a.promoter.first_name+' '+a.promoter.last_name===name : false);
+  const promoNames    = promoters.map(p => p.first_name + ' ' + p.last_name);
+  const promoShifts   = promoters.map(p => p.promoter_profiles?.[0]?.total_shifts || 0);
+  const promoAttRate  = promoters.map(p => {
+    const name = p.first_name + ' ' + p.last_name;
+    const mine = attendance.filter(a =>
+      a.promoter && a.promoter.first_name + ' ' + a.promoter.last_name === name
+    );
     if (!mine.length) return 0;
-    return Math.round((mine.filter(a=>a.status==='complete'||a.status==='checked_out').length/mine.length)*100);
+    return Math.round(
+      (mine.filter(a => a.status === 'complete' || a.status === 'checked_out').length / mine.length) * 100
+    );
   });
-  const topIdx    = promoShifts.indexOf(Math.max(...(promoShifts.length?promoShifts:[0])));
-  const topPromo  = promoNames[topIdx] || '—';
+  const promoPhotos   = promoters.map(p => {
+    const name = p.first_name + ' ' + p.last_name;
+    const mine = attendance.filter(a =>
+      a.promoter && a.promoter.first_name + ' ' + a.promoter.last_name === name
+    );
+    if (!mine.length) return 0;
+    return parseFloat(
+      (mine.reduce((s, a) => s + (a.photo_count || 0), 0) / mine.length).toFixed(1)
+    );
+  });
+  const topIdx    = promoShifts.indexOf(Math.max(...(promoShifts.length ? promoShifts : [0])));
+  const topPromo  = promoNames[topIdx]  || '—';
   const topShifts = promoShifts[topIdx] || 0;
 
   // ── Booking status breakdown ──────────────────────────────────
-  const bkStatuses   = ['confirmed','pending','declined','completed','cancelled'];
-  const bkStatusCols = ['rgba(16,185,129,.8)','rgba(245,158,11,.8)','rgba(239,68,68,.8)','rgba(0,212,255,.8)','rgba(100,116,139,.6)'];
-  const bkStatusData = bkStatuses.map(s=>bookings.filter(b=>b.status===s).length);
-
-  // ── Top stores ────────────────────────────────────────────────
-  const storeCounts = {};
-  bookings.forEach(b => {
-    const s = b.store || '—';
-    const name = typeof s==='object' ? (s.retailer?s.retailer+' — '+s.branch:s.name) : s;
-    storeCounts[name] = (storeCounts[name]||0)+1;
-  });
-  const topStores = Object.entries(storeCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const bkStatuses   = ['confirmed', 'pending', 'declined', 'completed', 'cancelled'];
+  const bkStatusCols = [
+    'rgba(16,185,129,.8)', 'rgba(245,158,11,.8)', 'rgba(239,68,68,.8)',
+    'rgba(0,212,255,.8)',  'rgba(100,116,139,.6)',
+  ];
+  const bkStatusData = bkStatuses.map(s => bookings.filter(b => b.status === s).length);
 
   // ── Rating buckets ────────────────────────────────────────────
-  const ratingBuckets = {Excellent:0,Good:0,Average:0,'Below Avg':0};
-  reports.forEach(r=>{
-    const rv=r.rating;
-    if(typeof rv==='number'){if(rv>=5)ratingBuckets['Excellent']++;else if(rv>=4)ratingBuckets['Good']++;else if(rv>=3)ratingBuckets['Average']++;else ratingBuckets['Below Avg']++;}
-    else if(typeof rv==='string'&&ratingBuckets[rv]!==undefined)ratingBuckets[rv]++;
+  const ratingBuckets = { Excellent:0, Good:0, Average:0, 'Below Avg':0 };
+  reports.forEach(r => {
+    const rv = r.rating;
+    if (typeof rv === 'number') {
+      if      (rv >= 5) ratingBuckets['Excellent']++;
+      else if (rv >= 4) ratingBuckets['Good']++;
+      else if (rv >= 3) ratingBuckets['Average']++;
+      else              ratingBuckets['Below Avg']++;
+    } else if (typeof rv === 'string' && ratingBuckets[rv] !== undefined) {
+      ratingBuckets[rv]++;
+    }
   });
 
-  // ── Revenue trend label ───────────────────────────────────────
-  const lastTwo  = revData.slice(-2);
-  const revTrend = lastTwo[1]>lastTwo[0]
-    ? `↑ Up ${lastTwo[0]?Math.round(((lastTwo[1]-lastTwo[0])/lastTwo[0])*100):100}% vs previous`
-    : lastTwo[1]<lastTwo[0]
-    ? `↓ Down ${lastTwo[0]?Math.round(((lastTwo[0]-lastTwo[1])/lastTwo[0])*100):0}% vs previous`
-    : 'Steady vs previous period';
-
-  // ── Period label helper ───────────────────────────────────────
+  // ── Period label ──────────────────────────────────────────────
   const periodLabel = {
-    '7d':'Last 7 Days','4w':'Last 4 Weeks','3m':'Last 3 Months',
-    '6m':'Last 6 Months','12m':'Last 12 Months','all':'All Time'
-  }[period]||period;
+    '7d':'Last 7 Days', '4w':'Last 4 Weeks', '3m':'Last 3 Months',
+    '6m':'Last 6 Months', '12m':'Last 12 Months', 'all':'All Time',
+  }[period] || period;
 
   // ── Render ────────────────────────────────────────────────────
   el.innerHTML = `
@@ -3314,50 +3839,50 @@ async function renderBI() {
     </div>
   </div>
 
-  <!-- Period filter tabs -->
+  <!-- Period tabs -->
   <div style="display:flex;gap:0;background:var(--oz-surface2);border:1px solid var(--oz-border);
        border-radius:var(--r);overflow:hidden;margin-bottom:1.4rem;width:fit-content">
-    ${[['7d','7 Days'],['4w','4 Weeks'],['3m','3 Months'],['6m','6 Months'],['12m','12 Months'],['all','All Time']].map(([v,l])=>`
+    ${[['7d','7 Days'],['4w','4 Weeks'],['3m','3 Months'],['6m','6 Months'],['12m','12 Months'],['all','All Time']].map(([v,l]) => `
     <button onclick="window.bi_period='${v}';renderBI()"
       style="padding:7px 15px;border:none;cursor:pointer;font-family:var(--font-b);
              font-size:.8rem;white-space:nowrap;transition:all .15s;
-             background:${period===v?'rgba(0,212,255,.12)':'transparent'};
-             color:${period===v?'var(--oz-accent)':'var(--oz-dim)'};
-             border-bottom:${period===v?'2px solid var(--oz-accent)':'2px solid transparent'}">
+             background:${period===v ? 'rgba(0,212,255,.12)' : 'transparent'};
+             color:${period===v ? 'var(--oz-accent)' : 'var(--oz-dim)'};
+             border-bottom:${period===v ? '2px solid var(--oz-accent)' : '2px solid transparent'}">
       ${l}
     </button>`).join('')}
   </div>
 
-  <!-- KPI strip — no cards, just numbers in a row -->
+  <!-- KPI strip -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
        gap:0;border:1px solid var(--oz-border);border-radius:var(--r-lg);
        overflow:hidden;margin-bottom:1.4rem;background:var(--oz-border)">
     ${[
-      [sym+paidRevenue.toLocaleString(), 'Collected',        'var(--oz-green)'],
-      [sym+outstandingRev.toLocaleString(),'Outstanding',    'var(--oz-red)'  ],
-      [bookings.filter(b=>b.status==='confirmed'||b.status==='completed').length, 'Activations', 'var(--oz-accent)'],
-      [attendanceRate+'%',  'Attendance',      attendanceRate>=90?'var(--oz-green)':'var(--oz-accent3)'],
-      [avgPhotos,           'Avg Photos',      parseFloat(avgPhotos)>=S.minPhotosPerShift?'var(--oz-green)':'var(--oz-accent3)'],
-      [avgRating+(avgRating!=='—'?'★':''), 'Avg Rating', 'var(--oz-accent2)'],
-    ].map(([val,label,col])=>`
+      [totalActivations,            'Activations',  'var(--oz-accent)'],
+      [completedShifts,             'Completed',    'var(--oz-green)'],
+      [pendingOffers,               'Pending',      pendingOffers > 0 ? 'var(--oz-accent3)' : 'var(--oz-dim)'],
+      [attendanceRate + '%',        'Attendance',   attendanceRate >= 90 ? 'var(--oz-green)' : 'var(--oz-accent3)'],
+      [avgPhotos,                   'Avg Photos',   parseFloat(avgPhotos) >= (S.minPhotosPerShift||10) ? 'var(--oz-green)' : 'var(--oz-accent3)'],
+      [avgRating + (avgRating !== '—' ? '★' : ''), 'Avg Rating', 'var(--oz-accent2)'],
+    ].map(([val, label, col]) => `
     <div style="background:var(--oz-surface);padding:1rem 1.1rem;text-align:center">
       <div style="font-family:var(--font-h);font-size:1.5rem;font-weight:800;color:${col};line-height:1">${val}</div>
       <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.8px;color:var(--oz-dim);margin-top:4px">${label}</div>
     </div>`).join('')}
   </div>
 
-  <!-- ROW 1: Revenue + Booking status -->
+  <!-- ROW 1: Activations over time + Booking status -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
-      <div class="bi-chart-title">📈 Revenue (${sym}) — ${periodLabel}</div>
-      <div class="chart-wrap" style="height:200px"><canvas id="chart-revenue"></canvas></div>
+      <div class="bi-chart-title">📅 Activations Over Time — ${periodLabel}</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="chart-activations"></canvas></div>
       <div class="bi-insight-box">
         <div class="bi-i-label">Trend</div>
-        <div class="bi-i-text">${revTrend}. Total invoiced: ${sym}${totalRevenue.toLocaleString()}.</div>
+        <div class="bi-i-text">${actTrend}. ${totalActivations} total activation${totalActivations !== 1 ? 's' : ''} in period.</div>
       </div>
     </div>
     <div class="bi-chart-card">
-      <div class="bi-chart-title">📅 Job Offer Status</div>
+      <div class="bi-chart-title">📋 Job Offer Status</div>
       <div class="chart-wrap" style="height:200px"><canvas id="chart-bkstatus"></canvas></div>
       <div class="bi-insight-box">
         <div class="bi-i-label">Summary</div>
@@ -3366,14 +3891,14 @@ async function renderBI() {
     </div>
   </div>
 
-  <!-- ROW 2: Shifts per promoter + Attendance -->
+  <!-- ROW 2: Shifts per promoter + Attendance rate -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
       <div class="bi-chart-title">👥 Shifts Per Promoter</div>
       <div class="chart-wrap" style="height:190px"><canvas id="chart-shifts"></canvas></div>
       <div class="bi-insight-box">
         <div class="bi-i-label">Top performer</div>
-        <div class="bi-i-text">${topPromo} — ${topShifts} shift${topShifts!==1?'s':''}.</div>
+        <div class="bi-i-text">${topPromo} — ${topShifts} shift${topShifts !== 1 ? 's' : ''}.</div>
       </div>
     </div>
     <div class="bi-chart-card">
@@ -3381,42 +3906,28 @@ async function renderBI() {
       <div class="chart-wrap" style="height:190px"><canvas id="chart-attendance"></canvas></div>
       <div class="bi-insight-box">
         <div class="bi-i-label">Overall</div>
-        <div class="bi-i-text">${attendanceRate}% · ${attendanceRate<90?'⚠️ Below 90% target.':'✅ Above 90% target.'}</div>
+        <div class="bi-i-text">${attendanceRate}% · ${attendanceRate < 90 ? '⚠️ Below 90% target.' : '✅ Above 90% target.'}</div>
       </div>
     </div>
   </div>
 
-  <!-- ROW 3: Invoices + Ratings -->
+  <!-- ROW 3: Photo compliance + Report ratings -->
   <div class="two-col" style="margin-bottom:1rem">
     <div class="bi-chart-card">
-      <div class="bi-chart-title">🧾 Invoice Breakdown (${sym})</div>
-      <div class="chart-wrap" style="height:180px"><canvas id="chart-invoices"></canvas></div>
+      <div class="bi-chart-title">📷 Avg Photos Per Shift by Promoter</div>
+      <div class="chart-wrap" style="height:190px"><canvas id="chart-photos"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Minimum required</div>
+        <div class="bi-i-text">${S.minPhotosPerShift || 10} photos per shift. Green = compliant, amber = below minimum.</div>
+      </div>
     </div>
     <div class="bi-chart-card">
       <div class="bi-chart-title">⭐ Report Ratings</div>
-      <div class="chart-wrap" style="height:180px"><canvas id="chart-ratings"></canvas></div>
-    </div>
-  </div>
-
-  <!-- ROW 4: Top stores bar list -->
-  <div class="bi-chart-card" style="margin-bottom:1rem">
-    <div class="bi-chart-title">🏪 Top Stores by Activations — ${periodLabel}</div>
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:.5rem">
-      ${topStores.length ? topStores.map(([store,count],i)=>{
-        const max  = topStores[0][1]||1;
-        const pct  = Math.round((count/max)*100);
-        const cols = ['var(--oz-accent)','var(--oz-green)','var(--oz-accent2)','var(--oz-accent3)','var(--oz-pink)'];
-        return `
-        <div>
-          <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:4px">
-            <span style="color:var(--oz-text);font-weight:${i===0?700:400}">${store}</span>
-            <span style="color:var(--oz-muted)">${count} activation${count!==1?'s':''}</span>
-          </div>
-          <div style="height:7px;background:var(--oz-surface2);border-radius:4px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:${cols[i]};border-radius:4px;transition:width .5s"></div>
-          </div>
-        </div>`;
-      }).join('') : `<div style="color:var(--oz-dim);font-size:.84rem;padding:.75rem 0">No activation data for this period.</div>`}
+      <div class="chart-wrap" style="height:190px"><canvas id="chart-ratings"></canvas></div>
+      <div class="bi-insight-box">
+        <div class="bi-i-label">Total reports</div>
+        <div class="bi-i-text">${reports.length} report${reports.length !== 1 ? 's' : ''} submitted in period. Avg: ${avgRating}${avgRating !== '—' ? '★' : ''}.</div>
+      </div>
     </div>
   </div>`;
 
@@ -3434,55 +3945,123 @@ async function renderBI() {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid:{color:grid}, ticks:{color:txt,font:{size:11}} },
-        y: { grid:{color:grid}, ticks:{color:txt,font:{size:11}} },
+        x: { grid:{ color:grid }, ticks:{ color:txt, font:{ size:11 } } },
+        y: { grid:{ color:grid }, ticks:{ color:txt, font:{ size:11 } } },
       },
     };
 
-    // Revenue
-    biCharts.revenue = new Chart(document.getElementById('chart-revenue'), {
+    // Activations over time
+    biCharts.activations = new Chart(document.getElementById('chart-activations'), {
       type: 'bar',
-      data: { labels: revLabels, datasets: [{ data: revData, backgroundColor: revData.map((_,i)=>i===revData.length-1?accent:'rgba(255,255,255,.06)'), borderRadius:4 }] },
-      options: { ...base, plugins:{...base.plugins, tooltip:{callbacks:{label:ctx=>`${sym}${ctx.raw.toLocaleString()}`}}} },
+      data: {
+        labels: actLabels,
+        datasets: [{
+          data: actData,
+          backgroundColor: actData.map((_,i) => i === actData.length-1 ? accent : 'rgba(255,255,255,.06)'),
+          borderRadius: 4,
+        }],
+      },
+      options: { ...base },
     });
 
     // Booking status doughnut
     biCharts.bkstatus = new Chart(document.getElementById('chart-bkstatus'), {
       type: 'doughnut',
-      data: { labels: bkStatuses, datasets: [{ data: bkStatusData, backgroundColor: bkStatusCols, borderWidth: 0 }] },
-      options: { responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}} },
+      data: {
+        labels: bkStatuses,
+        datasets: [{ data: bkStatusData, backgroundColor: bkStatusCols, borderWidth: 0 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '60%',
+        plugins: { legend: { display:true, position:'bottom', labels:{ color:txt, font:{ size:11 }, boxWidth:12 } } },
+      },
     });
 
     // Shifts per promoter
-    const shiftCols = [accent,green,amber,purple,red,'rgba(249,115,22,.75)'];
+    const shiftCols = [accent, green, amber, purple, red, 'rgba(249,115,22,.75)'];
     biCharts.shifts = new Chart(document.getElementById('chart-shifts'), {
       type: 'bar',
-      data: { labels: promoNames.map(n=>n.split(' ')[0]), datasets: [{ data: promoShifts, backgroundColor: shiftCols.slice(0,promoNames.length), borderRadius:4 }] },
+      data: {
+        labels: promoNames.map(n => n.split(' ')[0]),
+        datasets: [{
+          data: promoShifts,
+          backgroundColor: shiftCols.slice(0, promoNames.length),
+          borderRadius: 4,
+        }],
+      },
       options: { ...base },
     });
 
-    // Attendance rate
+    // Attendance rate by promoter
     biCharts.attendance = new Chart(document.getElementById('chart-attendance'), {
       type: 'bar',
-      data: { labels: promoNames.map(n=>n.split(' ')[0]), datasets: [{ data: promoAttRate, backgroundColor: promoAttRate.map(r=>r>=90?green:r>=70?amber:red), borderRadius:4 }] },
-      options: { ...base, scales:{...base.scales, y:{...base.scales.y, max:110, ticks:{...base.scales.y.ticks,callback:v=>v+'%'}}} },
+      data: {
+        labels: promoNames.map(n => n.split(' ')[0]),
+        datasets: [{
+          data: promoAttRate,
+          backgroundColor: promoAttRate.map(r => r >= 90 ? green : r >= 70 ? amber : red),
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        ...base,
+        scales: {
+          ...base.scales,
+          y: { ...base.scales.y, max: 110, ticks: { ...base.scales.y.ticks, callback: v => v + '%' } },
+        },
+      },
     });
 
-    // Invoice doughnut
-    const invPaid  = invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
-    const invOut   = invoices.filter(i=>i.status==='outstanding'||i.status==='overdue').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
-    const invDraft = invoices.filter(i=>i.status==='draft'||i.status==='sent').reduce((s,i)=>s+parseFloat(i.amount_zar||0),0);
-    biCharts.invoices = new Chart(document.getElementById('chart-invoices'), {
-      type: 'doughnut',
-      data: { labels:['Paid','Outstanding','Draft'], datasets:[{data:[invPaid,invOut,invDraft],backgroundColor:[green,red,amber],borderWidth:0}] },
-      options: { responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}},tooltip:{callbacks:{label:ctx=>`${sym}${ctx.raw.toLocaleString()}`}}} },
+    // Photo compliance per promoter
+    const minP = S.minPhotosPerShift || 10;
+    biCharts.photos = new Chart(document.getElementById('chart-photos'), {
+      type: 'bar',
+      data: {
+        labels: promoNames.map(n => n.split(' ')[0]),
+        datasets: [{
+          label: 'Avg photos/shift',
+          data: promoPhotos,
+          backgroundColor: promoPhotos.map(v => v >= minP ? green : amber),
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        ...base,
+        scales: {
+          ...base.scales,
+          y: {
+            ...base.scales.y,
+            suggestedMax: Math.max(minP * 1.4, ...promoPhotos) + 2,
+          },
+        },
+        plugins: {
+          ...base.plugins,
+          annotation: {
+            annotations: {
+              minLine: {
+                type: 'line',
+                yMin: minP, yMax: minP,
+                borderColor: red,
+                borderWidth: 2,
+                borderDash: [6, 3],
+              },
+            },
+          },
+        },
+      },
     });
 
-    // Ratings pie
+    // Report ratings pie
     biCharts.ratings = new Chart(document.getElementById('chart-ratings'), {
       type: 'pie',
-      data: { labels: Object.keys(ratingBuckets), datasets:[{data:Object.values(ratingBuckets),backgroundColor:[green,accent,amber,red],borderWidth:0}] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true,position:'bottom',labels:{color:txt,font:{size:11},boxWidth:12}}} },
+      data: {
+        labels: Object.keys(ratingBuckets),
+        datasets: [{ data: Object.values(ratingBuckets), backgroundColor: [green, accent, amber, red], borderWidth: 0 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:true, position:'bottom', labels:{ color:txt, font:{ size:11 }, boxWidth:12 } } },
+      },
     });
 
   }, 80);
@@ -3774,6 +4353,8 @@ window.OZ_CHAT_KB = {
   if (stored) {
     const u = JSON.parse(stored);
     document.getElementById('sb-name').textContent = u.name;
+    const mgrUser = document.getElementById('mgr-topbar-user');
+    if (mgrUser) mgrUser.textContent = u.firstName || u.name;
     document.getElementById('sb-av').textContent   = u.initials || u.name.split(' ').map(w=>w[0]).join('');
   }
 
