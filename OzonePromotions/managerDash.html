@@ -4285,6 +4285,69 @@ async function saveShiftSettings() {
   OZ.toast('✅ Shift rules saved to database!');
 }
 
+
+async function saveNewStore() {
+  const name     = document.getElementById('ns-name').value.trim();
+  const retailer = document.getElementById('ns-retailer').value.trim();
+  const branch   = document.getElementById('ns-branch').value.trim();
+  const email    = document.getElementById('ns-email').value.trim();
+  const phone    = document.getElementById('ns-phone').value.trim();
+  const town     = document.getElementById('ns-town').value.trim();
+  const address  = document.getElementById('ns-address').value.trim();
+  const province = document.getElementById('ns-province').value;
+
+  // ── Validation: all fields required ───────────────────────
+  const missing = [];
+  if (!name)     missing.push('Store / Retailer Name');
+  if (!retailer) missing.push('Retailer');
+  if (!branch)   missing.push('Branch / Mall');
+  if (!email)    missing.push('Contact Email');
+  if (!phone)    missing.push('Contact Number');
+  if (!town)     missing.push('Town / City');
+  if (!address)  missing.push('Street Address');
+  if (!province) missing.push('Province');
+
+  if (missing.length) {
+    alert('⚠️ Please fill in all fields:\n\n• ' + missing.join('\n• '));
+    return;
+  }
+
+  // ── Validation: email format ──────────────────────────────
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(email)) {
+    alert('⚠️ Please enter a valid email address.\n\ne.g. store@retailer.co.za');
+    return;
+  }
+
+  // ── Validation: SA phone number — starts with 0, 10 digits ─
+  const phoneDigits = phone.replace(/\D/g, '');
+  if (!/^0\d{9}$/.test(phoneDigits)) {
+    alert('⚠️ Please enter a valid South African phone number.\n\nIt must start with 0 and contain exactly 10 digits.\ne.g. 0310001234');
+    return;
+  }
+
+  const db = window.supabaseClient;
+  const { error } = await db
+    .from('stores')
+    .insert({
+      name,
+      retailer,
+      branch,
+      region:  province,
+      address: `${address}, ${town}`,
+      status:  'active',
+    });
+
+  if (error) { OZ.toast('❌ Could not save store: ' + error.message); return; }
+
+  ['ns-name','ns-retailer','ns-branch','ns-email','ns-phone','ns-town','ns-address'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  OZ.closeModal('modal-add-store');
+  OZ.toast('✅ Store added: ' + name);
+  renderSettings();
+}
+
 async function removeStore(id, name) {
   if (!confirm('Remove ' + name + '? This cannot be undone.')) return;
   const db = window.supabaseClient;
